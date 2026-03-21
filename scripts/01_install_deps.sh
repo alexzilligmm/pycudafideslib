@@ -42,10 +42,10 @@ OPENFHE_TMP=/tmp/openfhe_build_$$
 mkdir -p "$DEPS"
 
 # ── Modules ───────────────────────────────────────────────────────────────
-module load cuda/12.6 gcc cmake nvhpc
+module load cuda/12.2 gcc cmake llvm/14.0.6--gcc--12.2.0-cuda-12.2
 export CUDA_HOME=$(dirname "$(dirname "$(which nvcc)")")
-export CUDAHOSTCXX=$(which g++)
-export CXX=$(which g++)
+export CUDAHOSTCXX=$(which clang++)
+export CXX=$(which clang++)
 export CC=$(which gcc)
 echo "CUDA_HOME:   $CUDA_HOME"
 echo "CUDAHOSTCXX: $CUDAHOSTCXX"

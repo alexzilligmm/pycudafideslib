@@ -11,7 +11,7 @@
 
 set -e
 
-SKIP_CHECK=false
+SKIP_CHECK=true
 SKIP_INSTALL=false
 for arg in "$@"; do
     case "$arg" in
