@@ -12,9 +12,9 @@
 #SBATCH --error=logs/slurm/%j.err
 #SBATCH --output=logs/slurm/%j.out
 
-# Install OpenFHE 1.4.2 + FIDESlib into $DEPS.
-# FIDESlib lives as a git submodule in third_party/FIDESlib, already patched
-# to remove the hardcoded clang++ requirement in its CMakeLists.txt.
+# Two-stage install:
+#   1. Build OpenFHE v1.4.2 (with FIDESlib's patch) → $DEPS
+#   2. Build FIDESlib against that OpenFHE → $DEPS
 #
 # Run from: pycudafhe/
 # Submit:   sbatch scripts/01_install_deps.sh
@@ -36,6 +36,8 @@ REPO=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe
 DEPS=/leonardo_work/IscrC_eff-SAM2/azirilli/deps
 FIDESLIB_SRC="$REPO/third_party/FIDESlib"
 FIDESLIB_BUILD="$FIDESLIB_SRC/build"
+OPENFHE_PATCH="$FIDESLIB_SRC/deps/openfhe-1.4.2.patch"
+OPENFHE_TMP=/tmp/openfhe_build_$$
 
 mkdir -p "$DEPS"
 
@@ -60,30 +62,57 @@ else
     echo "nvidia-smi unavailable, defaulting to $GPU_ARCH"
 fi
 
-# ── Init submodule (FIDESlib already patched in repo) ─────────────────────
+# ── Init FIDESlib submodule ────────────────────────────────────────────────
 echo ""
 echo "--- Initialising FIDESlib submodule ---"
 cd "$REPO"
 GIT_SSL_NO_VERIFY=true git submodule update --init third_party/FIDESlib 2>&1
 
-# Remove any stale git lock files
-find "$FIDESLIB_SRC/.git" -name "*.lock" -delete 2>/dev/null || true
-
-echo "FIDESlib source: $FIDESLIB_SRC"
-grep -n 'CMAKE_C_COMPILER\|CMAKE_CXX_COMPILER' "$FIDESLIB_SRC/CMakeLists.txt" | head -5 || true
-
-# ── Skip OpenFHE build if already installed ───────────────────────────────
-OPENFHE_VER="$DEPS/lib/cmake/OpenFHE/OpenFHEConfigVersion.cmake"
+# ══════════════════════════════════════════════════════════════════════════
+# STAGE 1: OpenFHE v1.4.2
+# ══════════════════════════════════════════════════════════════════════════
+OPENFHE_VER_FILE="$DEPS/lib/cmake/OpenFHE/OpenFHEConfigVersion.cmake"
 OPENFHE_LIB="$DEPS/lib/libOPENFHEcore_static.a"
-INSTALL_OPENFHE=ON
-if [ -f "$OPENFHE_VER" ] && grep -qE 'PACKAGE_VERSION.*1\.4\.2' "$OPENFHE_VER" && [ -f "$OPENFHE_LIB" ]; then
-    echo "OpenFHE 1.4.2 already installed, skipping."
-    INSTALL_OPENFHE=OFF
+
+if [ -f "$OPENFHE_VER_FILE" ] && grep -qE 'PACKAGE_VERSION.*1\.4\.2' "$OPENFHE_VER_FILE" && [ -f "$OPENFHE_LIB" ]; then
+    echo ""
+    echo "--- OpenFHE 1.4.2 already installed, skipping ---"
+else
+    echo ""
+    echo "--- Cloning OpenFHE v1.4.2 ---"
+    mkdir -p "$OPENFHE_TMP"
+    GIT_SSL_NO_VERIFY=true git clone \
+        https://github.com/openfheorg/openfhe-development.git \
+        --branch v1.4.2 --depth 1 "$OPENFHE_TMP/src" 2>&1
+
+    echo "--- Applying FIDESlib patch ---"
+    cd "$OPENFHE_TMP/src"
+    git config user.email "build@leonardo"
+    git config user.name "build"
+    git am "$OPENFHE_PATCH" 2>&1
+
+    echo "--- Building OpenFHE ---"
+    cmake -S "$OPENFHE_TMP/src" -B "$OPENFHE_TMP/build" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$DEPS" \
+        -DCMAKE_C_COMPILER="$CC" \
+        -DCMAKE_CXX_COMPILER="$CXX" \
+        -DBUILD_STATIC=ON \
+        -DWITH_BE2=OFF -DWITH_BE4=OFF \
+        2>&1
+    cmake --build "$OPENFHE_TMP/build" --parallel 16 2>&1
+
+    echo "--- Installing OpenFHE to $DEPS ---"
+    cmake --install "$OPENFHE_TMP/build" 2>&1
+    rm -rf "$OPENFHE_TMP"
+    echo "OpenFHE installed."
 fi
 
-# ── Configure ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+# STAGE 2: FIDESlib (against already-installed OpenFHE)
+# ══════════════════════════════════════════════════════════════════════════
 echo ""
-echo "--- Configuring FIDESlib (FIDESLIB_INSTALL_OPENFHE=${INSTALL_OPENFHE}) ---"
+echo "--- Configuring FIDESlib (FIDESLIB_INSTALL_OPENFHE=OFF) ---"
 rm -rf "$FIDESLIB_BUILD"
 cmake -S "$FIDESLIB_SRC" -B "$FIDESLIB_BUILD" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -95,20 +124,19 @@ cmake -S "$FIDESLIB_SRC" -B "$FIDESLIB_BUILD" \
     -DCMAKE_CUDA_HOST_COMPILER="$CUDAHOSTCXX" \
     -DCUDA_PATH="$CUDA_HOME" \
     -DFIDESLIB_ARCH="$GPU_ARCH" \
-    -DFIDESLIB_INSTALL_OPENFHE="$INSTALL_OPENFHE" \
+    -DFIDESLIB_INSTALL_OPENFHE=OFF \
     -DFIDESLIB_BUILD_TESTS=OFF \
     -DFIDESLIB_BUILD_BENCH=OFF \
     -DFIDESLIB_BUILD_EXAMPLES=OFF \
     -DFIDESLIB_COMPILE_PYTHON_BINDINGS=OFF \
     2>&1
 
-# ── Build & Install ────────────────────────────────────────────────────────
 echo ""
 echo "--- Building FIDESlib (16 parallel jobs) ---"
 cmake --build "$FIDESLIB_BUILD" --parallel 16 2>&1
 
 echo ""
-echo "--- Installing to $DEPS ---"
+echo "--- Installing FIDESlib to $DEPS ---"
 cmake --install "$FIDESLIB_BUILD" 2>&1
 
 # ── Verify ────────────────────────────────────────────────────────────────
