@@ -64,7 +64,7 @@ fi
 echo ""
 echo "--- Initialising FIDESlib submodule ---"
 cd "$REPO"
-GIT_SSL_NO_VERIFY=true git submodule update --init --recursive 2>&1
+GIT_SSL_NO_VERIFY=true git submodule update --init third_party/FIDESlib 2>&1
 
 # Remove any stale git lock files
 find "$FIDESLIB_SRC/.git" -name "*.lock" -delete 2>/dev/null || true
