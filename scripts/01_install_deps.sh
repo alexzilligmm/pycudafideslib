@@ -108,6 +108,8 @@ else
     echo "OpenFHE installed."
 fi
 
+cd "$REPO"   # return after possible cd into deleted OPENFHE_TMP
+
 # ══════════════════════════════════════════════════════════════════════════
 # STAGE 2: FIDESlib (against already-installed OpenFHE)
 # ══════════════════════════════════════════════════════════════════════════
