@@ -30,7 +30,7 @@ REPO=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe
 BUILD_DIR="$REPO/build_sm80"
 
 # ── Modules ──────────────────────────────────────────────────────────────
-module load cuda/12.2 gcc cmake llvm/14.0.6--gcc--12.2.0-cuda-12.2
+module load cuda/12.6 gcc cmake
 export CUDA_HOME=$(dirname "$(dirname "$(which nvcc)")")
 
 # ── Verify build exists ───────────────────────────────────────────────────
