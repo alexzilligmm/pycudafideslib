@@ -13,10 +13,10 @@
 #SBATCH --output=logs/slurm/%j.out
 
 # Install OpenFHE 1.4.2 + FIDESlib into $DEPS.
-# FIDESlib is vendored under third_party/FIDESlib (cloned once, patched to
-# remove hardcoded clang++ requirement) so we have full control over its build.
+# FIDESlib lives as a git submodule in third_party/FIDESlib, already patched
+# to remove the hardcoded clang++ requirement in its CMakeLists.txt.
 #
-# Run from: cuda-backend/
+# Run from: pycudafhe/
 # Submit:   sbatch scripts/01_install_deps.sh
 
 set -e
@@ -32,11 +32,10 @@ export HTTPS_PROXY="$https_proxy"
 export OMP_NUM_THREADS=16
 
 # ── Paths ─────────────────────────────────────────────────────────────────
-REPO=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/cuda-backend
+REPO=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe
 DEPS=/leonardo_work/IscrC_eff-SAM2/azirilli/deps
 FIDESLIB_SRC="$REPO/third_party/FIDESlib"
 FIDESLIB_BUILD="$FIDESLIB_SRC/build"
-PATCH="$REPO/third_party/patches/fideslib_remove_clang_hardcode.patch"
 
 mkdir -p "$DEPS"
 
@@ -61,34 +60,17 @@ else
     echo "nvidia-smi unavailable, defaulting to $GPU_ARCH"
 fi
 
-# ── Clone FIDESlib into third_party/ (once) ──────────────────────────────
-if [ ! -d "$FIDESLIB_SRC/.git" ]; then
-    echo ""
-    echo "--- Cloning FIDESlib into third_party/FIDESlib ---"
-    GIT_SSL_NO_VERIFY=true git clone https://github.com/CAPS-UMU/FIDESlib.git \
-        --depth 1 "$FIDESLIB_SRC" 2>&1
-else
-    echo ""
-    echo "--- FIDESlib already cloned at $FIDESLIB_SRC ---"
-fi
+# ── Init submodule (FIDESlib already patched in repo) ─────────────────────
+echo ""
+echo "--- Initialising FIDESlib submodule ---"
+cd "$REPO"
+GIT_SSL_NO_VERIFY=true git submodule update --init --recursive 2>&1
 
 # Remove any stale git lock files
 find "$FIDESLIB_SRC/.git" -name "*.lock" -delete 2>/dev/null || true
 
-# ── Apply patch (idempotent: skip if already applied) ─────────────────────
-echo ""
-echo "--- Patching FIDESlib (remove hardcoded clang++) ---"
-cd "$FIDESLIB_SRC"
-if git apply --check "$PATCH" 2>/dev/null; then
-    git apply "$PATCH"
-    echo "Patch applied."
-elif grep -q 'set(CMAKE_C_COMPILER "clang")' CMakeLists.txt; then
-    # git apply --check failed but the lines are still there: apply with patch(1)
-    patch -p1 < "$PATCH"
-    echo "Patch applied via patch(1)."
-else
-    echo "Patch already applied or not needed, skipping."
-fi
+echo "FIDESlib source: $FIDESLIB_SRC"
+grep -n 'CMAKE_C_COMPILER\|CMAKE_CXX_COMPILER' "$FIDESLIB_SRC/CMakeLists.txt" | head -5 || true
 
 # ── Skip OpenFHE build if already installed ───────────────────────────────
 OPENFHE_VER="$DEPS/lib/cmake/OpenFHE/OpenFHEConfigVersion.cmake"

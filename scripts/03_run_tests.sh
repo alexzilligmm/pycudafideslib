@@ -26,7 +26,7 @@ echo "Host: $(hostname)  |  Date: $(date)"
 
 # ── Paths ────────────────────────────────────────────────────────────────
 DEPS=/leonardo_work/IscrC_eff-SAM2/azirilli/deps
-REPO=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/cuda-backend
+REPO=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe
 BUILD_DIR="$REPO/build_sm80"
 
 # ── Modules ──────────────────────────────────────────────────────────────
