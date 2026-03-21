@@ -1,0 +1,62 @@
+=== Installing OpenFHE + FIDESlib ===
+Host: lrdn0222.leonardo.local  |  Date: Sat Mar 21 20:12:38 CET 2026
+Loading gcc/12.2.0
+  Loading requirement: zlib-ng/2.1.6-jkgunjc zstd/1.5.6-uq5yyux binutils/2.42
+
+Loading cmake/3.27.9
+  Loading requirement: nghttp2/1.57.0-634bffh curl/8.7.1 gmake/4.4.1-phqmvks
+    ncurses/6.5-svfl57u
+CUDA_HOME:   /leonardo/prod/opt/compilers/cuda/12.6/none
+CUDAHOSTCXX: /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/gcc-12.2.0-lkcazt4letxjj4s7nlhzryoyivevsatz/bin/g++
+cmake version 3.27.9
+g++ (Spack GCC) 12.2.0
+Auto-detected GPU arch: 80-real (compute cap 8.0)
+
+--- Cloning FIDESlib ---
+Cloning into 'FIDESlib'...
+FIDESlib compiler hints:
+49:set(CMAKE_CXX_STANDARD 20)
+50:set(CMAKE_CXX_STANDARD_REQUIRED ON)
+51:set(CMAKE_CXX_EXTENSIONS ON)
+52:set(CMAKE_C_COMPILER "clang")
+53:set(CMAKE_CXX_COMPILER "clang++")
+72:set (CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
+76:project(fideslib VERSION 1.0 DESCRIPTION "Homomorphic Encryption Library" LANGUAGES CXX CUDA)
+80:set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
+149:# Use Clang's OpenMP implementation.
+151:set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${FIX_OMP_FLAGS}")
+157:    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")
+182:file(GLOB_RECURSE SOURCE_FILES_CXX ${SOURCE_DIR}/*.cpp)
+184:file(GLOB_RECURSE HEADER_FILES_CXX ${SOURCE_DIR}/*.hpp ${SOURCE_DIR}/*.h ${SOURCE_DIR}/*.inc)
+186:set_source_files_properties(${SOURCE_FILES_CXX} ${HEADER_FILES_CXX} PROPERTIES LANGUAGE CXX)
+190:set_source_files_properties(${HEADER_FILES_PUBLIC} ${SOURCE_FILES_API} PROPERTIES LANGUAGE CXX)
+194:target_sources(fideslib PRIVATE ${SOURCE_FILES_CXX} ${SOURCE_FILES_CUDA} ${SOURCE_FILES_API})
+200:	FILES ${HEADER_FILES_CXX} ${HEADER_FILES_CUDA}
+229:  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNCCL")
+265:set_source_files_properties(${DUMMY_SOURCES} PROPERTIES LANGUAGE CXX)
+272:	FILES ${HEADER_FILES_CUDA} ${HEADER_FILES_CXX}
+
+--- Configuring FIDESlib (FIDESLIB_INSTALL_OPENFHE=ON) ---
+loading initial cache file /tmp/compiler_init.cmake
+-- FIDESlib install path at: /leonardo_work/IscrC_eff-SAM2/azirilli/deps
+-- OpenFHE install path at: /leonardo_work/IscrC_eff-SAM2/azirilli/deps
+-- The CXX compiler identification is unknown
+-- The CUDA compiler identification is NVIDIA 12.6.77
+CMake Error at CMakeLists.txt:76 (project):
+  The CMAKE_CXX_COMPILER:
+
+    clang++
+
+  is not a full path and was not found in the PATH.
+
+  Tell CMake where to find the compiler by setting either the environment
+  variable "CXX" or the CMake cache entry CMAKE_CXX_COMPILER to the full path
+  to the compiler, or to the compiler name if it is in the PATH.
+
+
+-- Detecting CUDA compiler ABI info
+-- Detecting CUDA compiler ABI info - done
+-- Check for working CUDA compiler: /leonardo/prod/opt/compilers/cuda/12.6/none/bin/nvcc - skipped
+-- Detecting CUDA compile features
+-- Detecting CUDA compile features - done
+-- Configuring incomplete, errors occurred!
