@@ -11,7 +11,7 @@
 #include <string>
 #include <stdexcept>
 
-Ctx bootstrap_to(const LlamaInference&, const Ctx&, uint32_t);
+Ctx bootstrap_to(LlamaInference&, const Ctx&, uint32_t);
 
 struct Flags {
     int logN=12; std::string test="Decoder"; int level=5; int btpLevel=15;
@@ -74,8 +74,8 @@ int main(int argc, char** argv) {
     // Random test input
     std::vector<double> msg_in(llama.slots);
     for (int i=0;i<llama.slots;++i) msg_in[i]=-2.0+4.0*i/llama.slots;
-    Ctx x = llama.cc()->Encrypt(llama.fhe->pk(),
-                                 llama.cc()->MakeCKKSPackedPlaintext(msg_in));
+    Ptx pt_in = llama.cc()->MakeCKKSPackedPlaintext(msg_in);
+    Ctx x = llama.cc()->Encrypt(llama.fhe->pk(), pt_in);
 
     const std::string& T = f.test;
 

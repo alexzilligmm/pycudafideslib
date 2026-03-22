@@ -1,261 +1,255 @@
-// nonlinear.cu – SiLU, Softmax, Norm, Argmax
-// All FHE ops delegate to FIDESlib (OpenFHE + GPU).
-
 #include "llama.h"
+#include "ckks_primitives.h"
 #include <cmath>
 #include <vector>
-#include <iostream>
 #include <functional>
+#include <iostream>
+#include <iomanip>
 
-// declared in bootstrap.cu
-Ctx bootstrap_to(const LlamaInference&, const Ctx&, uint32_t);
+Ctx bootstrap_to(LlamaInference&, const Ctx&, uint32_t);
 
-// ── Chebyshev coefficient computation ────────────────────────────────────
-// Approximate f on [a,b] with a deg-n Chebyshev expansion.
-static std::vector<double> cheby_coeffs(std::function<double(double)> f,
-                                         double a, double b, int n) {
-    std::vector<double> c(n, 0.0);
-    for (int k = 0; k < n; ++k) {
-        double sum = 0.0;
-        for (int j = 0; j < n; ++j) {
-            double xj = std::cos(M_PI * (2.0 * j + 1) / (2.0 * n));
-            double x  = 0.5 * ((b - a) * xj + (a + b));
-            sum += f(x) * std::cos(k * std::acos(xj));
-        }
-        c[k] = (k == 0 ? 1.0 : 2.0) * sum / n;
-    }
-    return c;
+static Ptx const_pt(const CC& cc, double val, int slots, uint32_t level) {
+    return encode_const(cc, val, (size_t)slots, (int)level);
 }
 
-// ── SiLU ─────────────────────────────────────────────────────────────────
 
-static void init_silu(LlamaInference& llama) {
-    auto fn = [](double x) { return x / (std::exp(-x) + 1.0); };
-    llama.silu_func.cheby_coeffs = cheby_coeffs(fn, -20.0, 20.0, 128);
-    llama.silu_func.ready = true;
+static void dbg_lvl(const char* label, const Ctx& ct) {
+    std::cout << "  [DBG] " << label
+              << "  consumed=" << level_of(ct) << "\n";
 }
 
-Ctx silu(LlamaInference& llama, const Ctx& x) {
-    if (!llama.silu_func.ready) init_silu(llama);
-    std::cout << "Computing SiLU...\n";
-    Timer t;
-    // FIDESlib/OpenFHE EvalChebyshevSeries evaluates the polynomial on the GPU
-    // using the baby-step giant-step algorithm.
-    // The polynomial is expressed in Chebyshev basis on [-20, 20].
-    // We first normalise the input to [-1, 1].
+static void dbg_val(const char* label, const CC& cc,
+                    Ctx ct,                          // by value (copy for decrypt)
+                    const PrivateKey<DCRTPoly>& sk) {
+    auto v = decrypt(cc, ct, sk);
+    std::cout << "  [DBG] " << label
+              << "  consumed=" << level_of(ct)
+              << "  vals=[";
+    for (int i = 0; i < std::min((int)v.size(), 4); ++i)
+        std::cout << std::setprecision(6) << v[i]
+                  << (i < 3 ? ", " : "");
+    std::cout << "]\n";
+}
+
+Ctx silu(LlamaInference& llama, const Ctx& x_in) {
     const CC& cc = llama.cc();
-    const double a = -20.0, b = 20.0;
-    double inv_half = 2.0 / (b - a);
-    double shift    = -(a + b) / (b - a);
-
-    // t = x * inv_half + shift  (linear map to [-1,1])
-    Ptx pt_scale = encode_const(cc, inv_half, (size_t)llama.slots,
-                                  (int)level_of(x));
-    Ctx tn = cc->EvalMult(x, pt_scale);
-    Ptx pt_shift = encode_const(cc, shift, (size_t)llama.slots,
-                                  (int)level_of(tn));
-    cc->EvalAddInPlace(tn, cc->MakeCKKSPackedPlaintext(
-        std::vector<double>(llama.slots, shift)));
-
-    Ctx y = cc->EvalChebyshevSeries(tn, llama.silu_func.cheby_coeffs, -1.0, 1.0);
-    std::cout << "  SiLU done in " << t.elapsed_s()
-              << " s, level " << level_of(x) << " → " << level_of(y) << "\n";
-    return y;
+    auto fn = [](double x) { return x / (std::exp(-x) + 1.0); };
+    return eval_chebyshev(cc, x_in, fn, -20.0, 20.0, 127);
 }
 
-// ── Softmax ───────────────────────────────────────────────────────────────
-// exp via (1 + x/128)^{2^{7+temp}} → sum → bootstrap → Newton inverse.
-// target_level_after_btp: depth to consume after bootstrap before Newton.
+Ctx silu_expDim(LlamaInference& llama, const Ctx& x_in) {
+    const CC& cc = llama.cc();
+    const int S  = llama.slots;
 
-Ctx softmax(const LlamaInference& llama, const Ctx& x_in,
+    Ctx y = silu(llama, x_in);
+
+    std::vector<double> mask_vec(S, 0.0);
+    for (int i = 0; i < llama.size.expDim; ++i) {
+        int idx = i * S / llama.size.expDim;
+        if (idx < S) mask_vec[idx] = 1.0;
+    }
+    Ptx pt_mask = cc->MakeCKKSPackedPlaintext(
+        mask_vec, /*noiseScaleDeg=*/1, (uint32_t)level_of(y));
+
+    return cc->EvalMult(y, pt_mask);
+}
+
+Ctx softmax(LlamaInference& llama, const Ctx& x_in,
              int target_level_after_btp, int temp) {
     const CC& cc = llama.cc();
-    std::cout << "Computing Softmax...\n";
-    Timer t;
+    const int S  = llama.slots;
+    const auto& sk = llama.fhe->sk();
 
     Ctx x = x_in;
 
-    // ── exp via squaring trick ────────────────────────────────────────────
-    Ptx inv128 = cc->MakeCKKSPackedPlaintext(
-        std::vector<double>(llama.slots, 0.0078125));  // 1/128
-    x = cc->EvalMult(x, inv128);
+    Ptx pt_inv128 = const_pt(cc, 0.0078125, S, level_of(x));
+    cc->EvalMultInPlace(x, pt_inv128);
+    cc->RescaleInPlace(x);
 
-    // x = 1 + x/128
-    cc->EvalAddInPlace(x, cc->MakeCKKSPackedPlaintext(
-        std::vector<double>(llama.slots, 1.0)));
+    Ptx pt_one = const_pt(cc, 1.0, S, level_of(x));
+    cc->EvalAddInPlace(x, pt_one);
 
-    const int iters = 7 + temp;
-    for (int i = 0; i < iters; ++i)
-        x = cc->EvalSquare(x);
+    for (int i = 0; i < (7 + temp); ++i) {
+        cc->EvalSquareInPlace(x);
+        cc->RescaleInPlace(x);
+    }
 
-    Ctx exp_x = x;
+    Ctx exp_ct = cc->EvalAdd(x, 0.0);
 
-    // ── sum over sequence slots ──────────────────────────────────────────
+    const double v = 8.0 / S;   // = 1/256 for S=2048
+    cc->EvalMultInPlace(x, v);
+    cc->RescaleInPlace(x);      // NL → 1
+
     for (int j = 1; j < 256; j *= 2) {
-        Ctx tmp = cc->EvalRotate(exp_x, 1024 / j);
-        match_level(cc, exp_x, tmp);
-        cc->EvalAddInPlace(exp_x, tmp);
+        Ctx tmp = cc->EvalRotate(x, 1024 / j);
+        cc->EvalAddInPlace(x, tmp);
     }
 
-    std::cout << "  exp+sum done in " << t.elapsed_s() << " s\n";
-    t.reset();
+    x = bootstrap_to(llama, x, (uint32_t)target_level_after_btp);
 
-    // ── bootstrap sum ─────────────────────────────────────────────────────
-    Ctx sum_btp = bootstrap_to(llama, exp_x, (uint32_t)target_level_after_btp);
+    Ctx res = cc->EvalNegate(x);         // NL=2 (or auto-rescale from bootstrap NL=2)
+    cc->RescaleInPlace(res);             // NL→1
+    cc->EvalAddInPlace(res, 1.0);        // res = 1 - v*sum ≈ 0
+    Ctx dnm = cc->EvalAdd(res, 1.0);     // dnm ≈ 1  (will converge to 1/(v*sum))
 
-    // Scale by 0.1 before Newton iterations
-    cc->EvalMultInPlace(sum_btp, cc->MakeCKKSPackedPlaintext(
-        std::vector<double>(llama.slots, 0.1)));
+    for (int i = 0; i < 7; ++i) {
+        cc->EvalSquareInPlace(res);
+        cc->RescaleInPlace(res);
 
-    // ── Newton iterations for 1/sum ─────────────────────────────────────
-    // Encode constant ciphertext with value 1
-    Ctx one_ct = cc->Encrypt(llama.fhe->pk(),
-        cc->MakeCKKSPackedPlaintext(std::vector<double>(llama.slots, 1.0)));
+        Ctx tmp = cc->EvalAdd(res, 1.0);
 
-    Ctx res = cc->EvalSub(one_ct, sum_btp);
-    Ctx dnm = cc->EvalAdd(one_ct, res);
-
-    for (int i = 0; i < 9; ++i) {
-        res = cc->EvalSquare(res);
-        match_level(cc, one_ct, res);
-        Ctx tmp = cc->EvalAdd(res, one_ct);
+        match_level(cc, dnm, tmp);
         dnm = cc->EvalMult(dnm, tmp);
+        cc->RescaleInPlace(dnm);
+
     }
 
-    // softmax = exp(x) * dnm
-    match_level(cc, exp_x, dnm);
-    Ctx y = cc->EvalMult(exp_x, dnm);
+    {
+        uint32_t target = level_of(dnm);
+        int iters = 0;
+        while (level_of(exp_ct) < target) {
+            uint32_t cur = level_of(exp_ct);
+            std::vector<double> ones(S, 1.0);
+            Ptx pt_one2 = cc->MakeCKKSPackedPlaintext(ones, 1, (uint32_t)cur);
+            cc->EvalMultInPlace(exp_ct, pt_one2);
+            cc->RescaleInPlace(exp_ct);
+            ++iters;
+        }
+    }
 
-    // Final scale down by 0.1
-    cc->EvalMultInPlace(y, cc->MakeCKKSPackedPlaintext(
-        std::vector<double>(llama.slots, 0.1)));
 
-    std::cout << "  softmax done in " << t.elapsed_s()
-              << " s, output level " << level_of(y) << "\n";
+    Ctx y = cc->EvalMult(exp_ct, dnm);
+    cc->RescaleInPlace(y);
+
+    cc->EvalMultInPlace(y, v);   // algebraically: exp * (1/(v*sum)) * v = exp/sum
+    cc->RescaleInPlace(y);
+
     return y;
 }
 
-// ── Norm (Layer Normalization) ────────────────────────────────────────────
-Ctx norm(const LlamaInference& llama, const Ctx& x_in,
+
+Ctx norm(LlamaInference& llama, const Ctx& x_in,
           int target_level_after_btp) {
-    const CC& cc   = llama.cc();
-    const int S    = llama.slots;
-    const int hD   = llama.size.hidDim;
-    std::cout << "Computing Norm...\n";
-    Timer t;
+    const CC& cc = llama.cc();
+    const int S  = llama.slots;
+    const int hD = llama.size.hidDim;
+    const auto& sk = llama.fhe->sk();
 
-    // ── mean: sum x over hidDim slots ────────────────────────────────────
-    Ctx mean = x_in;
-    for (int i = S / hD; i < S; i *= 2)
-        rotate_add_inplace(llama, mean, i);
+    Ctx mean = cc->EvalAdd(x_in, 0.0);
+    for (int i = S / hD; i < S; i *= 2) {
+        Ctx tmp = cc->EvalRotate(mean, i);
+        cc->EvalAddInPlace(mean, tmp);
+    }
 
-    // ── variance: (d*x - mean)^2 / d^3 ──────────────────────────────────
-    Ctx xd = cc->EvalMult(x_in, cc->MakeCKKSPackedPlaintext(
-        std::vector<double>(S, (double)hD)));
+    Ctx xd = cc->EvalMult(x_in, (double)hD);
+    cc->RescaleInPlace(xd);
 
-    match_level(cc, mean, xd);
+    drop_levels(cc, mean, 1);
     Ctx varc = cc->EvalSub(xd, mean);
-    varc = cc->EvalSquare(varc);
 
-    for (int i = S / hD; i < S; i *= 2)
-        rotate_add_inplace(llama, varc, i);
+    cc->EvalSquareInPlace(varc);
+    cc->RescaleInPlace(varc);
+
+    for (int i = S / hD; i < S; i *= 2) {
+        Ctx tmp = cc->EvalRotate(varc, i);
+        cc->EvalAddInPlace(varc, tmp);
+    }
 
     double inv_d3 = 1.0 / std::pow((double)hD, 3.0);
-    cc->EvalMultInPlace(varc, cc->MakeCKKSPackedPlaintext(
-        std::vector<double>(S, inv_d3)));
+    cc->EvalMultInPlace(varc, inv_d3);
+    cc->RescaleInPlace(varc);
 
-    // ── initial approx of 1/sqrt(varc): linear fit ───────────────────────
-    const double slope = -1.29054537e-04;
-    const double bias  =  1.29054537e-01;
+    Ctx ans = cc->EvalMult(varc, -42.1);
+    cc->RescaleInPlace(ans);
+    cc->EvalAddInPlace(ans, 7.37);
 
-    Ctx ans = cc->EvalMult(varc, cc->MakeCKKSPackedPlaintext(
-        std::vector<double>(S, slope)));
-    cc->EvalAddInPlace(ans, cc->MakeCKKSPackedPlaintext(
-        std::vector<double>(S, bias)));
+    Ctx halfX = cc->EvalMult(varc, -0.5);
+    cc->RescaleInPlace(halfX);
 
-    // ── Newton iterations (4 rounds) ─────────────────────────────────────
-    // ans_{n+1} = ans_n * (1.5 - 0.5 * varc * ans_n^2)
-    for (int iter = 0; iter < 4; ++iter) {
-        Ctx ans_sq = cc->EvalSquare(ans);
-        match_level(cc, varc, ans_sq);
-        Ctx term1  = cc->EvalMult(varc, ans_sq);
-        term1 = cc->EvalMult(term1, cc->MakeCKKSPackedPlaintext(
-            std::vector<double>(S, -0.5)));
-        match_level(cc, ans, term1);
-        Ctx term2 = cc->EvalMult(ans, cc->MakeCKKSPackedPlaintext(
-            std::vector<double>(S, 1.5)));
-        match_level(cc, term1, term2);
+    for (int i = 0; i < 4; ++i) {
+        Ctx ansSq = cc->EvalSquare(ans);
+        cc->RescaleInPlace(ansSq);
+
+        drop_levels(cc, ans, 1);
+
+        Ctx ansCu = cc->EvalMult(ansSq, ans);
+        cc->RescaleInPlace(ansCu);
+
+        uint32_t halfX_target = level_of(ansCu);
+
+        Ctx term1 = cc->EvalMult(ansCu, halfX);
+        cc->RescaleInPlace(term1);
+
+        Ctx term2 = cc->EvalMult(ans, 1.5);
+        cc->RescaleInPlace(term2);
+
+        match_level(cc, term2, term1);
+
         ans = cc->EvalAdd(term1, term2);
     }
-    std::cout << "  Newton done in " << t.elapsed_s() << " s\n";
 
-    // ── bootstrap before Goldschmidt ─────────────────────────────────────
     ans = bootstrap_to(llama, ans, (uint32_t)target_level_after_btp);
-    t.reset();
 
-    // ── Goldschmidt iterations (2 rounds) ────────────────────────────────
-    // Computes 1/sqrt(varc) more accurately.
-    match_level(cc, varc, ans);
-    Ctx sqrt_ct = cc->EvalMult(varc, ans);  // varc * (1/sqrt(varc)) ≈ sqrt(varc)
 
-    for (int iter = 0; iter < 2; ++iter) {
-        Ctx res = cc->EvalMult(sqrt_ct, ans);
-        cc->EvalSubInPlace(res, cc->MakeCKKSPackedPlaintext(
-            std::vector<double>(S, 2.0)));
-        match_level(cc, sqrt_ct, res);
-        sqrt_ct = cc->EvalMult(sqrt_ct, res);
-        ans     = cc->EvalMult(ans, res);
-    }
-    // ans ≈ 1/sqrt(varc) after Goldschmidt
+    Ctx varc_r = varc;
+    reduce_to_level(cc, varc_r, level_of(ans), S);
 
-    // ── final: y = x / sqrt(var) ─────────────────────────────────────────
-    match_level(cc, x_in, ans);
-    Ctx y = cc->EvalMult(x_in, ans);
+    ans = goldschmidt_inv_sqrt(cc, S, varc_r, ans, 2);
 
-    std::cout << "  Norm done in " << t.elapsed_s()
-              << " s, output level " << level_of(y) << "\n";
+    Ctx x_copy = x_in;
+    reduce_to_level(cc, x_copy, level_of(ans), S);
+
+    Ctx y = cc->EvalMult(x_copy, ans);
+    cc->RescaleInPlace(y);
+
     return y;
 }
 
-// ── Argmax (under construction, mirrors Go stub) ──────────────────────────
 Ctx argmax(LlamaInference& llama, const Ctx& x_in) {
     const CC& cc = llama.cc();
-    Ctx logit    = softmax(llama, x_in, 14, 3);
-    Ctx copy     = logit;
+    const int S  = llama.slots;
 
+    Ctx logit = softmax(llama, x_in, 14, 3);
+
+    Ctx sum = cc->EvalAdd(logit, 0.0);
     for (int j = 1; j < 256; j *= 2) {
-        Ctx tmp = cc->EvalRotate(logit, 1024 / j);
-        match_level(cc, logit, tmp);
-        cc->EvalAddInPlace(logit, tmp);
+        Ctx tmp = cc->EvalRotate(sum, 1024 / j);
+        cc->EvalAddInPlace(sum, tmp);
     }
 
-    logit = bootstrap_to(llama, logit, 0);
+    sum = bootstrap_to(llama, sum, 16);
 
-    Ctx one_ct = cc->Encrypt(llama.fhe->pk(),
-        cc->MakeCKKSPackedPlaintext(std::vector<double>(llama.slots, 1.0)));
+    Ctx res = cc->EvalNegate(sum);
+    cc->RescaleInPlace(res);       
+    cc->EvalAddInPlace(res, 1.0);
+    Ctx dnm = cc->EvalAdd(res, 1.0);
 
-    Ctx res = cc->EvalSub(one_ct, logit);
-    Ctx dnm = cc->EvalAdd(one_ct, res);
     for (int i = 0; i < 12; ++i) {
-        res = cc->EvalSquare(res);
-        match_level(cc, one_ct, res);
-        Ctx tmp = cc->EvalAdd(res, one_ct);
+        cc->EvalSquareInPlace(res);
+        cc->RescaleInPlace(res);
+
+        Ctx tmp = cc->EvalAdd(res, 1.0);
+        match_level(cc, dnm, tmp);
         dnm = cc->EvalMult(dnm, tmp);
+        cc->RescaleInPlace(dnm);
     }
 
-    match_level(cc, copy, dnm);
-    Ctx y = cc->EvalMult(copy, dnm);
+    Ctx logit_copy = cc->EvalAdd(logit, 0.0);
+    reduce_to_level(cc, logit_copy, level_of(dnm), S);
+    Ctx y = cc->EvalMult(logit_copy, dnm);
+    cc->RescaleInPlace(y);
 
-    // Index plaintext
-    std::vector<double> idx(llama.slots);
-    for (int i = 0; i < llama.slots; ++i)
-        idx[i] = (double)((i / 8) % 16) - 8.0;
-    cc->EvalMultInPlace(y, cc->MakeCKKSPackedPlaintext(idx));
+    std::vector<double> idx_vec(S, 0.0);
+    for (int i = 0; i < S; ++i)
+        idx_vec[i] = (double)i;
+    Ptx idx = cc->MakeCKKSPackedPlaintext(idx_vec, 1, level_of(y));
+    cc->EvalMultInPlace(y, idx);
+    cc->RescaleInPlace(y);
 
     for (int i = 1; i < 256; i *= 2) {
         Ctx tmp = cc->EvalRotate(y, 1024 / i);
-        match_level(cc, y, tmp);
         cc->EvalAddInPlace(y, tmp);
     }
+
     return y;
 }

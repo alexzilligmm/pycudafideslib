@@ -1,0 +1,3 @@
+/leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/binutils-2.42-j3w2mvnt64wdeilm35xksl6ckqfyc22w/bin/ar qc libcachemir_lib.a CMakeFiles/cachemir_lib.dir/src/bootstrap.cu.o CMakeFiles/cachemir_lib.dir/src/primitives.cu.o CMakeFiles/cachemir_lib.dir/src/linear.cu.o CMakeFiles/cachemir_lib.dir/src/nonlinear.cu.o CMakeFiles/cachemir_lib.dir/src/llama.cu.o
+/leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/binutils-2.42-j3w2mvnt64wdeilm35xksl6ckqfyc22w/bin/ar q libcachemir_lib.a CMakeFiles/cachemir_lib.dir/cmake_device_link.o
+/leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/binutils-2.42-j3w2mvnt64wdeilm35xksl6ckqfyc22w/bin/ranlib libcachemir_lib.a

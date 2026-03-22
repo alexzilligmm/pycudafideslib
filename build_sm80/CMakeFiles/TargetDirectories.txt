@@ -1,0 +1,13 @@
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles/cachemir_lib.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles/cuda_cachemir.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles/test.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles/edit_cache.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles/rebuild_cache.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests/CMakeFiles/test_ops.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests/CMakeFiles/test_bootstrap.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests/CMakeFiles/test_primitives.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests/CMakeFiles/test_nonlinear.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests/CMakeFiles/test_llama.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests/CMakeFiles/test.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests/CMakeFiles/edit_cache.dir
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests/CMakeFiles/rebuild_cache.dir

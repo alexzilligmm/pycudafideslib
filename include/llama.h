@@ -30,8 +30,11 @@ struct LlamaInference {
     std::shared_ptr<CKKSContext> fhe;   // FIDESlib context + keys
 
     LlamaSize size;
-    int   logN   = 12;
-    int   slots  = 0;   // N/2
+    int   logN        = 12;
+    int   slots       = 0;    // N/2
+    int   total_depth = 25;   // depth + approx_bootstrap_depth used in make_ckks_context
+                               // Used by bootstrap_to to convert Go-style "remaining moduli"
+                               // target levels to CUDA-style "consumed" levels.
 
     bool parallel = true;
 
@@ -64,33 +67,37 @@ void prepare_cache(LlamaInference& llama,
                    const std::vector<std::string>& names);
 
 // ── linear layer operations ───────────────────────────────────────────────
-Ctx linear(const LlamaInference& llama, const Ctx& x,
+Ctx linear(LlamaInference& llama, const Ctx& x,
            const std::string& wname, int expand);
 
-Ctx qkv_q(const LlamaInference& llama, const Ctx& x);
-Ctx qkv_k(const LlamaInference& llama, const Ctx& x);
-Ctx qkv_v(const LlamaInference& llama, const Ctx& x);
+Ctx qkv_q(LlamaInference& llama, const Ctx& x);
+Ctx qkv_k(LlamaInference& llama, const Ctx& x);
+Ctx qkv_v(LlamaInference& llama, const Ctx& x);
 
-std::tuple<Ctx, Ctx> rope(const LlamaInference& llama,
+std::tuple<Ctx, Ctx> rope(LlamaInference& llama,
                            const Ctx& q, const Ctx& k);
 
 void cache_kv(LlamaInference& llama, const Ctx& k, const Ctx& v);
 
-Ctx qk_transpose(const LlamaInference& llama, const Ctx& q);
+Ctx qk_transpose(LlamaInference& llama, const Ctx& q);
 
-Ctx attn_v(const LlamaInference& llama, const Ctx& s);
+Ctx attn_v(LlamaInference& llama, const Ctx& s);
 
-Ctx out_proj(const LlamaInference& llama, const Ctx& x);
+Ctx out_proj(LlamaInference& llama, const Ctx& x);
 
-std::pair<Ctx, Ctx> up_gate(const LlamaInference& llama, const Ctx& x);
+std::pair<Ctx, Ctx> up_gate(LlamaInference& llama, const Ctx& x);
 
-Ctx down_proj(const LlamaInference& llama, const Ctx& x);
+Ctx down_proj(LlamaInference& llama, const Ctx& x);
 
 // ── nonlinear operations ──────────────────────────────────────────────────
-Ctx silu   (LlamaInference& llama, const Ctx& x);
-Ctx softmax(const LlamaInference& llama, const Ctx& x,
+// silu: apply SiLU to all slots (CUDA default, correct for FFN gate outputs).
+// silu_expDim: zeros slots outside [0, expDim) after SiLU — matches Go's
+//   nonZero slot mapping (polynomial.NewPolynomialVector with expDim slots).
+Ctx silu      (LlamaInference& llama, const Ctx& x);
+Ctx silu_expDim(LlamaInference& llama, const Ctx& x);
+Ctx softmax(LlamaInference& llama, const Ctx& x,
              int target_level_after_btp, int temp);
-Ctx norm   (const LlamaInference& llama, const Ctx& x,
+Ctx norm   (LlamaInference& llama, const Ctx& x,
              int target_level_after_btp);
 Ctx argmax (LlamaInference& llama, const Ctx& x);
 
@@ -100,7 +107,7 @@ Ctx model  (LlamaInference& llama, const Ctx& x);
 
 // ── utility ───────────────────────────────────────────────────────────────
 // rotate x by step and add to itself in-place
-void rotate_add_inplace(const LlamaInference& llama, Ctx& x, int step);
+void rotate_add_inplace(LlamaInference& llama, Ctx& x, int step);
 
 struct Timer {
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();

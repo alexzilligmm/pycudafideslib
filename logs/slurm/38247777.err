@@ -1,0 +1,6 @@
+Loading gcc/12.2.0
+  Loading requirement: zlib-ng/2.1.6-jkgunjc zstd/1.5.6-uq5yyux binutils/2.42
+
+Loading cmake/3.27.9
+  Loading requirement: nghttp2/1.57.0-634bffh curl/8.7.1 gmake/4.4.1-phqmvks
+    ncurses/6.5-svfl57u

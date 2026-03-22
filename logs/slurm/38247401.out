@@ -1,0 +1,923 @@
+=== Running cuda_cachemir tests ===
+Host: lrdn1203.leonardo.local  |  Date: Sun Mar 22 15:54:49 CET 2026
+
+--- Test binaries ---
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 15:54 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_bootstrap
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 15:54 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_llama
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 15:54 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_nonlinear
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 15:54 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_ops
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 15:54 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_primitives
+
+--- ctest (verbose) ---
+Internal ctest changing into directory: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80
+UpdateCTestConfiguration  from :/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/DartConfiguration.tcl
+Test project /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: test_ops
+
+1: Test command: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_ops
+1: Working Directory: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests
+1: Test timeout computed to be: 10000000
+1: Running main() from /croot/yaml-cpp-split_1714510678659/work/test/gtest-1.11.0/googletest/src/gtest_main.cc
+1: [==========] Running 10 tests from 1 test suite.
+1: [----------] Global test environment set-up.
+1: [----------] 10 tests from OpsTest
+1: [ RUN      ] OpsTest.CtCtAdd
+1: GPU 0: NVIDIA A100-SXM-64GB
+1:  SMs: 124, SharedMem: 164 KB, Blocks/SM: 32, Threads/SM: 2048, L2 size: 32 MB, Bus: 4096-bit
+1: CtCtAdd: max_err=1.94497e-07, tolerance=1e-06 [PASS]
+1: [       OK ] OpsTest.CtCtAdd (1345 ms)
+1: [ RUN      ] OpsTest.CtCtSub
+1: CtCtSub: max_err=1.85415e-07, tolerance=1e-06 [PASS]
+1: [       OK ] OpsTest.CtCtSub (1117 ms)
+1: [ RUN      ] OpsTest.CtCtMul
+1: CtCtMul: max_err=4.11192e-06, tolerance=1e-05 [PASS]
+1: [       OK ] OpsTest.CtCtMul (1090 ms)
+1: [ RUN      ] OpsTest.CtPtMul
+1: CtPtMul: max_err=3.36894e-07, tolerance=1e-06 [PASS]
+1: [       OK ] OpsTest.CtPtMul (1137 ms)
+1: [ RUN      ] OpsTest.CtAddScalar
+1: CtAddScalar: max_err=1.44044e-07, tolerance=1e-06 [PASS]
+1: [       OK ] OpsTest.CtAddScalar (1144 ms)
+1: [ RUN      ] OpsTest.Rotate
+1: Rotate: max_err=9.15587e-07, tolerance=1e-06 [PASS]
+1: [       OK ] OpsTest.Rotate (1146 ms)
+1: [ RUN      ] OpsTest.RotateAndAdd
+1: RotateAndAdd: max_err=1.95758e-07, tolerance=1e-06 [PASS]
+1: [       OK ] OpsTest.RotateAndAdd (1206 ms)
+1: [ RUN      ] OpsTest.LevelReduce
+1: LevelReduce: max_err=1.54508e-07, tolerance=0.0001 [PASS]
+1: [       OK ] OpsTest.LevelReduce (1191 ms)
+1: [ RUN      ] OpsTest.ChainedMul
+1: ChainedMul: max_err=0.000127819, tolerance=0.1 [PASS]
+1: [       OK ] OpsTest.ChainedMul (1192 ms)
+1: [ RUN      ] OpsTest.SquareVsMul
+1: SquareVsMul: max_err=3.81474e-07, tolerance=1e-05 [PASS]
+1: [       OK ] OpsTest.SquareVsMul (1246 ms)
+1: [----------] 10 tests from OpsTest (11819 ms total)
+1: 
+1: [----------] Global test environment tear-down
+1: [==========] 10 tests from 1 test suite ran. (11819 ms total)
+1: [  PASSED  ] 10 tests.
+1: Cuda failure /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/third_party/FIDESlib/src/CKKS/Context.cu:841: 'driver shutting down'
+1/5 Test #1: test_ops .........................   Passed   12.11 sec
+test 2
+    Start 2: test_bootstrap
+
+2: Test command: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_bootstrap
+2: Working Directory: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests
+2: Test timeout computed to be: 10000000
+2: Running main() from /croot/yaml-cpp-split_1714510678659/work/test/gtest-1.11.0/googletest/src/gtest_main.cc
+2: [==========] Running 7 tests from 1 test suite.
+2: [----------] Global test environment set-up.
+2: [----------] 7 tests from BootstrapTest
+2: [ RUN      ] BootstrapTest.MessagePreserved
+2: GPU 0: NVIDIA A100-SXM-64GB
+2:  SMs: 124, SharedMem: 164 KB, Blocks/SM: 32, Threads/SM: 2048, L2 size: 32 MB, Bus: 4096-bit
+2: Adding bootstrap precomputation to GPU for 2048 slots.
+2: Plaintexts loaded: 186 ~ 151MB
+2: Rotation keys loaded: 62 ~ 406MB
+2: Level before bootstrap: 9
+2: Level after  bootstrap: 19
+2: Max absolute error after bootstrap: 1.73645e-05
+2: [       OK ] BootstrapTest.MessagePreserved (1287 ms)
+2: [ RUN      ] BootstrapTest.LevelRefresh
+2: Rotation keys loaded: 62 ~ 406MB
+2: Level: 11 → 19
+2: [       OK ] BootstrapTest.LevelRefresh (857 ms)
+2: [ RUN      ] BootstrapTest.NoiseBound
+2: Rotation keys loaded: 62 ~ 406MB
+2: [       OK ] BootstrapTest.NoiseBound (938 ms)
+2: [ RUN      ] BootstrapTest.ChainedBootstrap
+2: Rotation keys loaded: 62 ~ 406MB
+2: [       OK ] BootstrapTest.ChainedBootstrap (882 ms)
+2: [ RUN      ] BootstrapTest.AfterMultiplication
+2: Rotation keys loaded: 62 ~ 406MB
+2: After 8 multiplications, bootstrap max_err=1.74367e-05
+2: [       OK ] BootstrapTest.AfterMultiplication (850 ms)
+2: [ RUN      ] BootstrapTest.Linearity
+2: Rotation keys loaded: 62 ~ 406MB
+2: [       OK ] BootstrapTest.Linearity (932 ms)
+2: [ RUN      ] BootstrapTest.BootstrapToLevel
+2: Rotation keys loaded: 62 ~ 406MB
+2: Bootstrapping (level 9)...
+2:   bootstrap done in 0.0157175 s, raw output level 19
+2:   output level after target drop: 19
+2: [       OK ] BootstrapTest.BootstrapToLevel (860 ms)
+2: [----------] 7 tests from BootstrapTest (6608 ms total)
+2: 
+2: [----------] Global test environment tear-down
+2: [==========] 7 tests from 1 test suite ran. (6608 ms total)
+2: [  PASSED  ] 7 tests.
+2: Cuda failure /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/third_party/FIDESlib/src/CKKS/Context.cu:841: 'driver shutting down'
+2/5 Test #2: test_bootstrap ...................   Passed    6.78 sec
+test 3
+    Start 3: test_primitives
+
+3: Test command: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_primitives
+3: Working Directory: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests
+3: Test timeout computed to be: 10000000
+3: Running main() from /croot/yaml-cpp-split_1714510678659/work/test/gtest-1.11.0/googletest/src/gtest_main.cc
+3: [==========] Running 19 tests from 1 test suite.
+3: [----------] Global test environment set-up.
+3: [----------] 19 tests from PrimitivesTest
+3: [ RUN      ] PrimitivesTest.InvSqrtNewton_Constant
+3: GPU 0: NVIDIA A100-SXM-64GB
+3:  SMs: 124, SharedMem: 164 KB, Blocks/SM: 32, Threads/SM: 2048, L2 size: 32 MB, Bus: 4096-bit
+3: InvSqrtNewton x=0.25: expected=2 err=8.0002e-07
+3: [       OK ] PrimitivesTest.InvSqrtNewton_Constant (5046 ms)
+3: [ RUN      ] PrimitivesTest.InvSqrtNewton_SmallX
+3: InvSqrtNewton x=0.04: expected=5 err=1.35645e-05
+3: [       OK ] PrimitivesTest.InvSqrtNewton_SmallX (4775 ms)
+3: [ RUN      ] PrimitivesTest.InvSqrtNewton_VaryingInput
+3: InvSqrtNewton varying: max_err=1.70999e-06
+3: [       OK ] PrimitivesTest.InvSqrtNewton_VaryingInput (4785 ms)
+3: [ RUN      ] PrimitivesTest.GoldschmidtInvSqrt_Constant
+3: GoldschmidtInvSqrt x=0.25: expected=2 err=0.000141022
+3: [       OK ] PrimitivesTest.GoldschmidtInvSqrt_Constant (4683 ms)
+3: [ RUN      ] PrimitivesTest.GoldschmidtInvSqrt_VaryingInput
+3: GoldschmidtInvSqrt varying: max_err=2.60478e-05
+3: [       OK ] PrimitivesTest.GoldschmidtInvSqrt_VaryingInput (4699 ms)
+3: [ RUN      ] PrimitivesTest.ExpSquaring_Zero
+3: ExpSquaring z=0: err=2.46612e-05
+3: [       OK ] PrimitivesTest.ExpSquaring_Zero (4567 ms)
+3: [ RUN      ] PrimitivesTest.ExpSquaring_SmallPositive
+3: ExpSquaring z=0.5: fhe_err=4.00194e-05 approx_err=0.00160512
+3: [       OK ] PrimitivesTest.ExpSquaring_SmallPositive (4582 ms)
+3: [ RUN      ] PrimitivesTest.ExpSquaring_SmallNegative
+3: ExpSquaring z=-0.5: fhe_err=1.54778e-05
+3: [       OK ] PrimitivesTest.ExpSquaring_SmallNegative (4600 ms)
+3: [ RUN      ] PrimitivesTest.NewtonInverse_SmallDenominator
+3: NewtonInverse s=0.8: expected=1.25 err=2.44544e-07
+3: [       OK ] PrimitivesTest.NewtonInverse_SmallDenominator (4879 ms)
+3: [ RUN      ] PrimitivesTest.NewtonInverse_LargerDenominator
+3: NewtonInverse s=0.5: expected=2 err=5.48608e-07
+3: [       OK ] PrimitivesTest.NewtonInverse_LargerDenominator (4882 ms)
+3: [ RUN      ] PrimitivesTest.GoldschmidtInv_SmallDenominator
+3: GoldschmidtInv a=0.8 (exact x0): expected=1.25 err=3.08638e-07
+3: [       OK ] PrimitivesTest.GoldschmidtInv_SmallDenominator (4776 ms)
+3: [ RUN      ] PrimitivesTest.GoldschmidtInv_RoughInitialGuess
+3: GoldschmidtInv a=0.7 (rough x0=1.3): expected=1.42857 err=3.99294e-07
+3: [       OK ] PrimitivesTest.GoldschmidtInv_RoughInitialGuess (4793 ms)
+3: [ RUN      ] PrimitivesTest.GoldschmidtInv_VaryingInput
+3: GoldschmidtInv varying: max_err=5.18675e-07
+3: [       OK ] PrimitivesTest.GoldschmidtInv_VaryingInput (4792 ms)
+3: [ RUN      ] PrimitivesTest.ChebyshevCoeffs_SiLU_Degree127
+3: ChebyshevCoeffs SiLU(0)=8.04586e-09 SiLU(1)=0.731059 SiLU(-1)=-0.268941
+3: [       OK ] PrimitivesTest.ChebyshevCoeffs_SiLU_Degree127 (4497 ms)
+3: [ RUN      ] PrimitivesTest.ChebyshevCoeffs_Identity
+3: ChebyshevCoeffs identity(0.5)=0.5
+3: [       OK ] PrimitivesTest.ChebyshevCoeffs_Identity (4341 ms)
+3: [ RUN      ] PrimitivesTest.EvalChebyshev_SiLU_AtZero
+3: EvalChebyshev SiLU(0): err=3.13603e-07
+3: [       OK ] PrimitivesTest.EvalChebyshev_SiLU_AtZero (4379 ms)
+3: [ RUN      ] PrimitivesTest.EvalChebyshev_SiLU_KnownValues
+3: EvalChebyshev SiLU(1): expected=0.731059 err=3.83692e-07
+3: EvalChebyshev SiLU(-1): expected=-0.268941 err=2.29552e-07
+3: [       OK ] PrimitivesTest.EvalChebyshev_SiLU_KnownValues (4557 ms)
+3: [ RUN      ] PrimitivesTest.EvalChebyshev_SiLU_VaryingInput
+3: EvalChebyshev SiLU varying [-0.5,0.5]: max_err=3.69526e-07
+3: [       OK ] PrimitivesTest.EvalChebyshev_SiLU_VaryingInput (4395 ms)
+3: [ RUN      ] PrimitivesTest.EvalLinearWSum_ThreeTerms
+3: EvalLinearWSum 2*1+3*2-0.5: expected=7.5 err=8.19722e-07
+3: [       OK ] PrimitivesTest.EvalLinearWSum_ThreeTerms (4635 ms)
+3: [----------] 19 tests from PrimitivesTest (88674 ms total)
+3: 
+3: [----------] Global test environment tear-down
+3: [==========] 19 tests from 1 test suite ran. (88674 ms total)
+3: [  PASSED  ] 19 tests.
+3: Cuda failure /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/third_party/FIDESlib/src/CKKS/Context.cu:841: 'driver shutting down'
+3/5 Test #3: test_primitives ..................   Passed   88.94 sec
+test 4
+    Start 4: test_nonlinear
+
+4: Test command: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_nonlinear
+4: Working Directory: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests
+4: Test timeout computed to be: 10000000
+4: Running main() from /croot/yaml-cpp-split_1714510678659/work/test/gtest-1.11.0/googletest/src/gtest_main.cc
+4: [==========] Running 11 tests from 1 test suite.
+4: [----------] Global test environment set-up.
+4: [----------] 11 tests from NonlinearTest
+4: [ RUN      ] NonlinearTest.SiLU_SmallValues
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: GPU 0: NVIDIA A100-SXM-64GB
+4:  SMs: 124, SharedMem: 164 KB, Blocks/SM: 32, Threads/SM: 2048, L2 size: 32 MB, Bus: 4096-bit
+4: Adding bootstrap precomputation to GPU for 2048 slots.
+4: Plaintexts loaded: 186 ~ 215MB
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: SiLU max_abs_err=8.04583e-09
+4: [       OK ] NonlinearTest.SiLU_SmallValues (1676 ms)
+4: [ RUN      ] NonlinearTest.SiLU_AtZero
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: SiLU(0) max_abs_err=8.04606e-09
+4: [       OK ] NonlinearTest.SiLU_AtZero (1192 ms)
+4: [ RUN      ] NonlinearTest.SiLU_Positive_Approx_Identity
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: SiLU(0.4) max_abs_err=6.61668e-09
+4: [       OK ] NonlinearTest.SiLU_Positive_Approx_Identity (1171 ms)
+4: [ RUN      ] NonlinearTest.Softmax_SumsToOne
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: [softmax] START  consumed=0
+4: [softmax] after x/128 rescale:  consumed=1
+4: [softmax] after 7 squarings: consumed=8
+4:   [DBG] exp(x)[0..3]  consumed=8  vals=[1, 1.05126, 1.10513, 1.16173]
+4: [softmax] after rotation sum:   consumed=8
+4:   [DBG] sum[0..3]  consumed=8  vals=[256, 269.123, 282.913, 297.403]
+4: Bootstrapping (level 8)...
+4:   bootstrap done in 0.016768 s, raw output level 19
+4:   output level after target drop: 19
+4: [softmax] after bootstrap:      consumed=19
+4:   [DBG] btp_sum[0..3]  consumed=19  vals=[104.276, 117.371, 131.113, 145.65]
+4: [softmax] after *v rescale:     consumed=21
+4:   [DBG] v*sum[0..3]  consumed=21  vals=[0.407327, 0.458479, 0.512162, 0.568946]
+4: [softmax] Newton init:          res_consumed=22  dnm_consumed=22
+4:   [DBG] res_init[0..3]  consumed=22  vals=[0.592673, 0.541521, 0.487838, 0.431054]
+4: [softmax] Newton iter 0:  res_consumed=23  dnm_consumed=24
+4: [softmax] Newton iter 1:  res_consumed=24  dnm_consumed=25
+4: [softmax] Newton iter 2:  res_consumed=25  dnm_consumed=26
+4: [softmax] Newton iter 3:  res_consumed=26  dnm_consumed=27
+4: [softmax] Newton iter 4:  res_consumed=27  dnm_consumed=28
+4: [softmax] Newton iter 5:  res_consumed=28  dnm_consumed=29
+4: [softmax] Newton iter 6:  res_consumed=29  dnm_consumed=30
+4: [softmax] before reduce_to_level:  exp_ct_consumed=8  dnm_consumed=30
+4: [softmax]   reduce iter 0: exp_ct_consumed=8 (target=30)
+4: [softmax]   reduce iter 1: exp_ct_consumed=9 (target=30)
+4: [softmax]   reduce iter 2: exp_ct_consumed=10 (target=30)
+4: [softmax]   reduce iter 3: exp_ct_consumed=11 (target=30)
+4: [softmax]   reduce iter 4: exp_ct_consumed=12 (target=30)
+4: [softmax]   reduce iter 5: exp_ct_consumed=13 (target=30)
+4: [softmax]   reduce iter 6: exp_ct_consumed=14 (target=30)
+4: [softmax]   reduce iter 7: exp_ct_consumed=15 (target=30)
+4: [softmax]   reduce iter 8: exp_ct_consumed=16 (target=30)
+4: [softmax]   reduce iter 9: exp_ct_consumed=17 (target=30)
+4: [softmax]   reduce iter 10: exp_ct_consumed=18 (target=30)
+4: [softmax]   reduce iter 11: exp_ct_consumed=19 (target=30)
+4: [softmax]   reduce iter 12: exp_ct_consumed=20 (target=30)
+4: [softmax]   reduce iter 13: exp_ct_consumed=21 (target=30)
+4: [softmax]   reduce iter 14: exp_ct_consumed=22 (target=30)
+4: [softmax]   reduce iter 15: exp_ct_consumed=23 (target=30)
+4: [softmax]   reduce iter 16: exp_ct_consumed=24 (target=30)
+4: [softmax]   reduce iter 17: exp_ct_consumed=25 (target=30)
+4: [softmax]   reduce iter 18: exp_ct_consumed=26 (target=30)
+4: [softmax]   reduce iter 19: exp_ct_consumed=27 (target=30)
+4: [softmax]   reduce iter 20: exp_ct_consumed=28 (target=30)
+4: [softmax]   reduce iter 21: exp_ct_consumed=29 (target=30)
+4: [softmax] reduce_to_level done after 22 iters: exp_ct_consumed=30
+4:   [DBG] exp_ct reduced[0..3]  consumed=30  vals=[1, 1.05126, 1.10513, 1.16173]
+4:   [DBG] dnm[0..3]  consumed=30  vals=[2.45503, 2.18113, 1.95251, 1.75764]
+4: [softmax] after exp*dnm rescale: consumed=31
+4: [softmax] final:                consumed=32
+4:   [DBG] result[0..3]  consumed=32  vals=[0.00958997, 0.00895677, 0.00842879, 0.00797618]
+4: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_nonlinear.cu:212: Failure
+4: The difference between sum and 1.0 is 1.4550316751686942, which exceeds 0.1, where
+4: sum evaluates to 2.4550316751686942,
+4: 1.0 evaluates to 1, and
+4: 0.1 evaluates to 0.10000000000000001.
+4: Strided group 0 sum=2.4550316751686942
+4: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_nonlinear.cu:212: Failure
+4: The difference between sum and 1.0 is 1.29293364432095, which exceeds 0.1, where
+4: sum evaluates to 2.29293364432095,
+4: 1.0 evaluates to 1, and
+4: 0.1 evaluates to 0.10000000000000001.
+4: Strided group 1 sum=2.29293364432095
+4: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_nonlinear.cu:212: Failure
+4: The difference between sum and 1.0 is 1.1577708402282609, which exceeds 0.1, where
+4: sum evaluates to 2.1577708402282609,
+4: 1.0 evaluates to 1, and
+4: 0.1 evaluates to 0.10000000000000001.
+4: Strided group 2 sum=2.1577708402282609
+4: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_nonlinear.cu:212: Failure
+4: The difference between sum and 1.0 is 1.0419018630931411, which exceeds 0.1, where
+4: sum evaluates to 2.0419018630931411,
+4: 1.0 evaluates to 1, and
+4: 0.1 evaluates to 0.10000000000000001.
+4: Strided group 3 sum=2.0419018630931411
+4: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_nonlinear.cu:212: Failure
+4: The difference between sum and 1.0 is 0.94502225430724973, which exceeds 0.1, where
+4: sum evaluates to 1.9450222543072497,
+4: 1.0 evaluates to 1, and
+4: 0.1 evaluates to 0.10000000000000001.
+4: Strided group 4 sum=1.9450222543072497
+4: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_nonlinear.cu:212: Failure
+4: The difference between sum and 1.0 is 0.85910611600344122, which exceeds 0.1, where
+4: sum evaluates to 1.8591061160034412,
+4: 1.0 evaluates to 1, and
+4: 0.1 evaluates to 0.10000000000000001.
+4: Strided group 5 sum=1.8591061160034412
+4: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_nonlinear.cu:212: Failure
+4: The difference between sum and 1.0 is 0.78432756839902917, which exceeds 0.1, where
+4: sum evaluates to 1.7843275683990292,
+4: 1.0 evaluates to 1, and
+4: 0.1 evaluates to 0.10000000000000001.
+4: Strided group 6 sum=1.7843275683990292
+4: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_nonlinear.cu:212: Failure
+4: The difference between sum and 1.0 is 0.71926335973216737, which exceeds 0.1, where
+4: sum evaluates to 1.7192633597321674,
+4: 1.0 evaluates to 1, and
+4: 0.1 evaluates to 0.10000000000000001.
+4: Strided group 7 sum=1.7192633597321674
+4: [  FAILED  ] NonlinearTest.Softmax_SumsToOne (1243 ms)
+4: [ RUN      ] NonlinearTest.Softmax_MaxSlot
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: [softmax] START  consumed=0
+4: [softmax] after x/128 rescale:  consumed=1
+4: [softmax] after 7 squarings: consumed=8
+4:   [DBG] exp(x)[0..3]  consumed=8  vals=[1, 1, 1, 1.49089]
+4: [softmax] after rotation sum:   consumed=8
+4:   [DBG] sum[0..3]  consumed=8  vals=[256, 256, 256, 256.491]
+4: Bootstrapping (level 8)...
+4:   bootstrap done in 0.0150689 s, raw output level 19
+4:   output level after target drop: 19
+4: [softmax] after bootstrap:      consumed=19
+4:   [DBG] btp_sum[0..3]  consumed=19  vals=[162.913, 162.913, 162.913, 163.404]
+4: [softmax] after *v rescale:     consumed=21
+4:   [DBG] v*sum[0..3]  consumed=21  vals=[0.63638, 0.63638, 0.63638, 0.638298]
+4: [softmax] Newton init:          res_consumed=22  dnm_consumed=22
+4:   [DBG] res_init[0..3]  consumed=22  vals=[0.36362, 0.36362, 0.36362, 0.361702]
+4: [softmax] Newton iter 0:  res_consumed=23  dnm_consumed=24
+4: [softmax] Newton iter 1:  res_consumed=24  dnm_consumed=25
+4: [softmax] Newton iter 2:  res_consumed=25  dnm_consumed=26
+4: [softmax] Newton iter 3:  res_consumed=26  dnm_consumed=27
+4: [softmax] Newton iter 4:  res_consumed=27  dnm_consumed=28
+4: [softmax] Newton iter 5:  res_consumed=28  dnm_consumed=29
+4: [softmax] Newton iter 6:  res_consumed=29  dnm_consumed=30
+4: [softmax] before reduce_to_level:  exp_ct_consumed=8  dnm_consumed=30
+4: [softmax]   reduce iter 0: exp_ct_consumed=8 (target=30)
+4: [softmax]   reduce iter 1: exp_ct_consumed=9 (target=30)
+4: [softmax]   reduce iter 2: exp_ct_consumed=10 (target=30)
+4: [softmax]   reduce iter 3: exp_ct_consumed=11 (target=30)
+4: [softmax]   reduce iter 4: exp_ct_consumed=12 (target=30)
+4: [softmax]   reduce iter 5: exp_ct_consumed=13 (target=30)
+4: [softmax]   reduce iter 6: exp_ct_consumed=14 (target=30)
+4: [softmax]   reduce iter 7: exp_ct_consumed=15 (target=30)
+4: [softmax]   reduce iter 8: exp_ct_consumed=16 (target=30)
+4: [softmax]   reduce iter 9: exp_ct_consumed=17 (target=30)
+4: [softmax]   reduce iter 10: exp_ct_consumed=18 (target=30)
+4: [softmax]   reduce iter 11: exp_ct_consumed=19 (target=30)
+4: [softmax]   reduce iter 12: exp_ct_consumed=20 (target=30)
+4: [softmax]   reduce iter 13: exp_ct_consumed=21 (target=30)
+4: [softmax]   reduce iter 14: exp_ct_consumed=22 (target=30)
+4: [softmax]   reduce iter 15: exp_ct_consumed=23 (target=30)
+4: [softmax]   reduce iter 16: exp_ct_consumed=24 (target=30)
+4: [softmax]   reduce iter 17: exp_ct_consumed=25 (target=30)
+4: [softmax]   reduce iter 18: exp_ct_consumed=26 (target=30)
+4: [softmax]   reduce iter 19: exp_ct_consumed=27 (target=30)
+4: [softmax]   reduce iter 20: exp_ct_consumed=28 (target=30)
+4: [softmax]   reduce iter 21: exp_ct_consumed=29 (target=30)
+4: [softmax] reduce_to_level done after 22 iters: exp_ct_consumed=30
+4:   [DBG] exp_ct reduced[0..3]  consumed=30  vals=[1, 1, 1, 1.49089]
+4:   [DBG] dnm[0..3]  consumed=30  vals=[1.57139, 1.57139, 1.57139, 1.56667]
+4: [softmax] after exp*dnm rescale: consumed=31
+4: [softmax] final:                consumed=32
+4:   [DBG] result[0..3]  consumed=32  vals=[0.00613823, 0.00613823, 0.00613823, 0.00912397]
+4: Softmax MaxSlot err=0.0033077
+4: [       OK ] NonlinearTest.Softmax_MaxSlot (1231 ms)
+4: [ RUN      ] NonlinearTest.Norm_MeanZero
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: [norm] START  consumed=0
+4: [norm] after mean rotsum:  consumed=0
+4:   [DBG] mean[0..3]  consumed=0  vals=[-7.29149e-12, 8.119e-13, -4.56345e-13, -7.28283e-14]
+4: [norm] after xd rescale:   consumed=1
+4: [norm] after varc=xd-mean: consumed=1
+4: [norm] after varc^2:       consumed=2
+4: [norm] after varc rotsum:  consumed=2
+4: [norm] after varc/hD^3:    consumed=3
+4:   [DBG] varc[0..3]  consumed=3  vals=[0.045, 0.045, 0.045, 0.045]
+4: [norm] after ans_init:     consumed=4
+4:   [DBG] ans_init[0..3]  consumed=4  vals=[5.4755, 5.4755, 5.4755, 5.4755]
+4: [norm] halfX init:         consumed=4
+4: [norm] Newton iter 0: ansSq_consumed=5  ans_consumed=4  halfX_consumed=4
+4: [norm] Newton iter 0: ansCu_consumed=6
+4: [norm] Newton iter 0: reduce halfX 4 → 6
+4: [norm] Newton iter 0: halfX after reduce: consumed=6
+4: [norm] Newton iter 0: term1_consumed=7
+4: [norm] Newton iter 0: term2_consumed=6
+4: [norm] Newton iter 0: term2_after_match=7
+4: [norm] Newton iter 0: ans_consumed=7
+4:   [DBG] ans_newton[0..3]  consumed=7  vals=[4.51962, 4.51962, 4.51962, 4.51962]
+4: [norm] Newton iter 1: ansSq_consumed=8  ans_consumed=7  halfX_consumed=6
+4: [norm] Newton iter 1: ansCu_consumed=9
+4: [norm] Newton iter 1: reduce halfX 6 → 9
+4: [norm] Newton iter 1: halfX after reduce: consumed=9
+4: [norm] Newton iter 1: term1_consumed=10
+4: [norm] Newton iter 1: term2_consumed=9
+4: [norm] Newton iter 1: term2_after_match=10
+4: [norm] Newton iter 1: ans_consumed=10
+4:   [DBG] ans_newton[0..3]  consumed=10  vals=[4.70218, 4.70218, 4.70218, 4.70218]
+4: [norm] Newton iter 2: ansSq_consumed=11  ans_consumed=10  halfX_consumed=9
+4: [norm] Newton iter 2: ansCu_consumed=12
+4: [norm] Newton iter 2: reduce halfX 9 → 12
+4: [norm] Newton iter 2: halfX after reduce: consumed=12
+4: [norm] Newton iter 2: term1_consumed=13
+4: [norm] Newton iter 2: term2_consumed=12
+4: [norm] Newton iter 2: term2_after_match=13
+4: [norm] Newton iter 2: ans_consumed=13
+4:   [DBG] ans_newton[0..3]  consumed=13  vals=[4.714, 4.714, 4.714, 4.714]
+4: [norm] Newton iter 3: ansSq_consumed=14  ans_consumed=13  halfX_consumed=12
+4: [norm] Newton iter 3: ansCu_consumed=15
+4: [norm] Newton iter 3: reduce halfX 12 → 15
+4: [norm] Newton iter 3: halfX after reduce: consumed=15
+4: [norm] Newton iter 3: term1_consumed=16
+4: [norm] Newton iter 3: term2_consumed=15
+4: [norm] Newton iter 3: term2_after_match=16
+4: [norm] Newton iter 3: ans_consumed=16
+4:   [DBG] ans_newton[0..3]  consumed=16  vals=[4.71405, 4.71405, 4.71405, 4.71405]
+4: [norm] before bootstrap:   consumed=16
+4: Bootstrapping (level 16)...
+4:   bootstrap done in 0.0168832 s, raw output level 19
+4:   output level after target drop: 24
+4: [norm] after bootstrap:    consumed=24
+4:   [DBG] ans_btp[0..3]  consumed=24  vals=[4.71339, 4.71339, 4.71339, 4.71339]
+4: [norm] before Goldschmidt: varc_consumed=3  ans_consumed=24
+4: [norm] varc_r after reduce: consumed=24
+4:   [DBG] varc_r[0..3]  consumed=24  vals=[0.045, 0.045, 0.045, 0.045]
+4: [norm] after Goldschmidt:  consumed=32
+4:   [DBG] ans_gold[0..3]  consumed=32  vals=[4.71405, 4.71405, 4.71405, 4.71405]
+4: [norm] before final mult: x_in_consumed=0  ans_consumed=32
+4: [norm] x_copy after reduce: consumed=32
+4: [norm] final:              consumed=33
+4:   [DBG] result[0..3]  consumed=33  vals=[-2.20258e-14, 0.00433875, 0.00867745, 0.0130161]
+4: [       OK ] NonlinearTest.Norm_MeanZero (1301 ms)
+4: [ RUN      ] NonlinearTest.Norm_MatchesReference
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: [norm] START  consumed=0
+4: [norm] after mean rotsum:  consumed=0
+4:   [DBG] mean[0..3]  consumed=0  vals=[0.0583652, -0.0218996, -0.0820299, -0.0667424]
+4: [norm] after xd rescale:   consumed=1
+4: [norm] after varc=xd-mean: consumed=1
+4: [norm] after varc^2:       consumed=2
+4: [norm] after varc rotsum:  consumed=2
+4: [norm] after varc/hD^3:    consumed=3
+4:   [DBG] varc[0..3]  consumed=3  vals=[0.0450369, 0.0454163, 0.0446063, 0.0449011]
+4: [norm] after ans_init:     consumed=4
+4:   [DBG] ans_init[0..3]  consumed=4  vals=[5.47395, 5.45797, 5.49208, 5.47966]
+4: [norm] halfX init:         consumed=4
+4: [norm] Newton iter 0: ansSq_consumed=5  ans_consumed=4  halfX_consumed=4
+4: [norm] Newton iter 0: ansCu_consumed=6
+4: [norm] Newton iter 0: reduce halfX 4 → 6
+4: [norm] Newton iter 0: halfX after reduce: consumed=6
+4: [norm] Newton iter 0: term1_consumed=7
+4: [norm] Newton iter 0: term2_consumed=6
+4: [norm] Newton iter 0: term2_after_match=7
+4: [norm] Newton iter 0: ans_consumed=7
+4:   [DBG] ans_newton[0..3]  consumed=7  vals=[4.5174, 4.49484, 4.54345, 4.52557]
+4: [norm] Newton iter 1: ansSq_consumed=8  ans_consumed=7  halfX_consumed=6
+4: [norm] Newton iter 1: ansCu_consumed=9
+4: [norm] Newton iter 1: reduce halfX 6 → 9
+4: [norm] Newton iter 1: halfX after reduce: consumed=9
+4: [norm] Newton iter 1: term1_consumed=10
+4: [norm] Newton iter 1: term2_consumed=9
+4: [norm] Newton iter 1: term2_after_match=10
+4: [norm] Newton iter 1: ans_consumed=10
+4:   [DBG] ans_newton[0..3]  consumed=10  vals=[4.70021, 4.68009, 4.72336, 4.70748]
+4: [norm] Newton iter 2: ansSq_consumed=11  ans_consumed=10  halfX_consumed=9
+4: [norm] Newton iter 2: ansCu_consumed=12
+4: [norm] Newton iter 2: reduce halfX 9 → 12
+4: [norm] Newton iter 2: halfX after reduce: consumed=12
+4: [norm] Newton iter 2: term1_consumed=13
+4: [norm] Newton iter 2: term2_consumed=12
+4: [norm] Newton iter 2: term2_after_match=13
+4: [norm] Newton iter 2: ans_consumed=13
+4:   [DBG] ans_newton[0..3]  consumed=13  vals=[4.71207, 4.69234, 4.73476, 4.71919]
+4: [norm] Newton iter 3: ansSq_consumed=14  ans_consumed=13  halfX_consumed=12
+4: [norm] Newton iter 3: ansCu_consumed=15
+4: [norm] Newton iter 3: reduce halfX 12 → 15
+4: [norm] Newton iter 3: halfX after reduce: consumed=15
+4: [norm] Newton iter 3: term1_consumed=16
+4: [norm] Newton iter 3: term2_consumed=15
+4: [norm] Newton iter 3: term2_after_match=16
+4: [norm] Newton iter 3: ans_consumed=16
+4:   [DBG] ans_newton[0..3]  consumed=16  vals=[4.71211, 4.69239, 4.7348, 4.71924]
+4: [norm] before bootstrap:   consumed=16
+4: Bootstrapping (level 16)...
+4:   bootstrap done in 0.0162117 s, raw output level 19
+4:   output level after target drop: 24
+4: [norm] after bootstrap:    consumed=24
+4:   [DBG] ans_btp[0..3]  consumed=24  vals=[4.71145, 4.69173, 4.73415, 4.71858]
+4: [norm] before Goldschmidt: varc_consumed=3  ans_consumed=24
+4: [norm] varc_r after reduce: consumed=24
+4:   [DBG] varc_r[0..3]  consumed=24  vals=[0.0450369, 0.0454163, 0.0446063, 0.0449011]
+4: [norm] after Goldschmidt:  consumed=32
+4:   [DBG] ans_gold[0..3]  consumed=32  vals=[4.71211, 4.69239, 4.7348, 4.71924]
+4: [norm] before final mult: x_in_consumed=0  ans_consumed=32
+4: [norm] x_copy after reduce: consumed=32
+4: [norm] final:              consumed=33
+4:   [DBG] result[0..3]  consumed=33  vals=[-9.0622e-15, 1.18455, 1.2916, 0.199794]
+4: Norm relative error: 1.11033e-07
+4: [       OK ] NonlinearTest.Norm_MatchesReference (1315 ms)
+4: [ RUN      ] NonlinearTest.Norm_UnitVariance
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: [norm] START  consumed=0
+4: [norm] after mean rotsum:  consumed=0
+4:   [DBG] mean[0..3]  consumed=0  vals=[0.0583652, -0.0218996, -0.0820299, -0.0667424]
+4: [norm] after xd rescale:   consumed=1
+4: [norm] after varc=xd-mean: consumed=1
+4: [norm] after varc^2:       consumed=2
+4: [norm] after varc rotsum:  consumed=2
+4: [norm] after varc/hD^3:    consumed=3
+4:   [DBG] varc[0..3]  consumed=3  vals=[0.0450369, 0.0454163, 0.0446063, 0.0449011]
+4: [norm] after ans_init:     consumed=4
+4:   [DBG] ans_init[0..3]  consumed=4  vals=[5.47395, 5.45797, 5.49208, 5.47966]
+4: [norm] halfX init:         consumed=4
+4: [norm] Newton iter 0: ansSq_consumed=5  ans_consumed=4  halfX_consumed=4
+4: [norm] Newton iter 0: ansCu_consumed=6
+4: [norm] Newton iter 0: reduce halfX 4 → 6
+4: [norm] Newton iter 0: halfX after reduce: consumed=6
+4: [norm] Newton iter 0: term1_consumed=7
+4: [norm] Newton iter 0: term2_consumed=6
+4: [norm] Newton iter 0: term2_after_match=7
+4: [norm] Newton iter 0: ans_consumed=7
+4:   [DBG] ans_newton[0..3]  consumed=7  vals=[4.5174, 4.49484, 4.54345, 4.52557]
+4: [norm] Newton iter 1: ansSq_consumed=8  ans_consumed=7  halfX_consumed=6
+4: [norm] Newton iter 1: ansCu_consumed=9
+4: [norm] Newton iter 1: reduce halfX 6 → 9
+4: [norm] Newton iter 1: halfX after reduce: consumed=9
+4: [norm] Newton iter 1: term1_consumed=10
+4: [norm] Newton iter 1: term2_consumed=9
+4: [norm] Newton iter 1: term2_after_match=10
+4: [norm] Newton iter 1: ans_consumed=10
+4:   [DBG] ans_newton[0..3]  consumed=10  vals=[4.70021, 4.68009, 4.72336, 4.70748]
+4: [norm] Newton iter 2: ansSq_consumed=11  ans_consumed=10  halfX_consumed=9
+4: [norm] Newton iter 2: ansCu_consumed=12
+4: [norm] Newton iter 2: reduce halfX 9 → 12
+4: [norm] Newton iter 2: halfX after reduce: consumed=12
+4: [norm] Newton iter 2: term1_consumed=13
+4: [norm] Newton iter 2: term2_consumed=12
+4: [norm] Newton iter 2: term2_after_match=13
+4: [norm] Newton iter 2: ans_consumed=13
+4:   [DBG] ans_newton[0..3]  consumed=13  vals=[4.71207, 4.69234, 4.73476, 4.71919]
+4: [norm] Newton iter 3: ansSq_consumed=14  ans_consumed=13  halfX_consumed=12
+4: [norm] Newton iter 3: ansCu_consumed=15
+4: [norm] Newton iter 3: reduce halfX 12 → 15
+4: [norm] Newton iter 3: halfX after reduce: consumed=15
+4: [norm] Newton iter 3: term1_consumed=16
+4: [norm] Newton iter 3: term2_consumed=15
+4: [norm] Newton iter 3: term2_after_match=16
+4: [norm] Newton iter 3: ans_consumed=16
+4:   [DBG] ans_newton[0..3]  consumed=16  vals=[4.71211, 4.69239, 4.7348, 4.71924]
+4: [norm] before bootstrap:   consumed=16
+4: Bootstrapping (level 16)...
+4:   bootstrap done in 0.0161827 s, raw output level 19
+4:   output level after target drop: 24
+4: [norm] after bootstrap:    consumed=24
+4:   [DBG] ans_btp[0..3]  consumed=24  vals=[4.71145, 4.69173, 4.73415, 4.71858]
+4: [norm] before Goldschmidt: varc_consumed=3  ans_consumed=24
+4: [norm] varc_r after reduce: consumed=24
+4:   [DBG] varc_r[0..3]  consumed=24  vals=[0.0450369, 0.0454163, 0.0446063, 0.0449011]
+4: [norm] after Goldschmidt:  consumed=32
+4:   [DBG] ans_gold[0..3]  consumed=32  vals=[4.71211, 4.69239, 4.7348, 4.71924]
+4: [norm] before final mult: x_in_consumed=0  ans_consumed=32
+4: [norm] x_copy after reduce: consumed=32
+4: [norm] final:              consumed=33
+4:   [DBG] result[0..3]  consumed=33  vals=[1.17434e-13, 1.18455, 1.2916, 0.199794]
+4: [       OK ] NonlinearTest.Norm_UnitVariance (1322 ms)
+4: [ RUN      ] NonlinearTest.GoCompat_SiLU_MatchesSiLUPlaintext
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: GoCompat SiLU max_abs_err=8.04587e-09
+4: [       OK ] NonlinearTest.GoCompat_SiLU_MatchesSiLUPlaintext (1183 ms)
+4: [ RUN      ] NonlinearTest.GoCompat_Softmax_MatchesSoftmaxPlaintext
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: [softmax] START  consumed=0
+4: [softmax] after x/128 rescale:  consumed=1
+4: [softmax] after 7 squarings: consumed=8
+4:   [DBG] exp(x)[0..3]  consumed=8  vals=[1, 1.02017, 1.04053, 1.06087]
+4: [softmax] after rotation sum:   consumed=8
+4:   [DBG] sum[0..3]  consumed=8  vals=[259.029, 259.031, 259.029, 259.022]
+4: Bootstrapping (level 8)...
+4:   bootstrap done in 0.0161848 s, raw output level 19
+4:   output level after target drop: 19
+4: [softmax] after bootstrap:      consumed=19
+4:   [DBG] btp_sum[0..3]  consumed=19  vals=[162.97, 162.973, 162.971, 162.964]
+4: [softmax] after *v rescale:     consumed=21
+4:   [DBG] v*sum[0..3]  consumed=21  vals=[0.636603, 0.636613, 0.636604, 0.636577]
+4: [softmax] Newton init:          res_consumed=22  dnm_consumed=22
+4:   [DBG] res_init[0..3]  consumed=22  vals=[0.363397, 0.363388, 0.363396, 0.363423]
+4: [softmax] Newton iter 0:  res_consumed=23  dnm_consumed=24
+4: [softmax] Newton iter 1:  res_consumed=24  dnm_consumed=25
+4: [softmax] Newton iter 2:  res_consumed=25  dnm_consumed=26
+4: [softmax] Newton iter 3:  res_consumed=26  dnm_consumed=27
+4: [softmax] Newton iter 4:  res_consumed=27  dnm_consumed=28
+4: [softmax] Newton iter 5:  res_consumed=28  dnm_consumed=29
+4: [softmax] Newton iter 6:  res_consumed=29  dnm_consumed=30
+4: [softmax] before reduce_to_level:  exp_ct_consumed=8  dnm_consumed=30
+4: [softmax]   reduce iter 0: exp_ct_consumed=8 (target=30)
+4: [softmax]   reduce iter 1: exp_ct_consumed=9 (target=30)
+4: [softmax]   reduce iter 2: exp_ct_consumed=10 (target=30)
+4: [softmax]   reduce iter 3: exp_ct_consumed=11 (target=30)
+4: [softmax]   reduce iter 4: exp_ct_consumed=12 (target=30)
+4: [softmax]   reduce iter 5: exp_ct_consumed=13 (target=30)
+4: [softmax]   reduce iter 6: exp_ct_consumed=14 (target=30)
+4: [softmax]   reduce iter 7: exp_ct_consumed=15 (target=30)
+4: [softmax]   reduce iter 8: exp_ct_consumed=16 (target=30)
+4: [softmax]   reduce iter 9: exp_ct_consumed=17 (target=30)
+4: [softmax]   reduce iter 10: exp_ct_consumed=18 (target=30)
+4: [softmax]   reduce iter 11: exp_ct_consumed=19 (target=30)
+4: [softmax]   reduce iter 12: exp_ct_consumed=20 (target=30)
+4: [softmax]   reduce iter 13: exp_ct_consumed=21 (target=30)
+4: [softmax]   reduce iter 14: exp_ct_consumed=22 (target=30)
+4: [softmax]   reduce iter 15: exp_ct_consumed=23 (target=30)
+4: [softmax]   reduce iter 16: exp_ct_consumed=24 (target=30)
+4: [softmax]   reduce iter 17: exp_ct_consumed=25 (target=30)
+4: [softmax]   reduce iter 18: exp_ct_consumed=26 (target=30)
+4: [softmax]   reduce iter 19: exp_ct_consumed=27 (target=30)
+4: [softmax]   reduce iter 20: exp_ct_consumed=28 (target=30)
+4: [softmax]   reduce iter 21: exp_ct_consumed=29 (target=30)
+4: [softmax] reduce_to_level done after 22 iters: exp_ct_consumed=30
+4:   [DBG] exp_ct reduced[0..3]  consumed=30  vals=[1, 1.02017, 1.04053, 1.06087]
+4:   [DBG] dnm[0..3]  consumed=30  vals=[1.57084, 1.57081, 1.57084, 1.5709]
+4: [softmax] after exp*dnm rescale: consumed=31
+4: [softmax] final:                consumed=32
+4:   [DBG] result[0..3]  consumed=32  vals=[0.00613608, 0.00625973, 0.00638476, 0.00650986]
+4: GoCompat Softmax rel_err=0.589507
+4: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_nonlinear.cu:358: Failure
+4: Expected: (rel) < (0.1), actual: 0.589507 vs 0.1
+4: FHE Softmax disagrees with Go SoftmaxPlaintext by 0.58950672677146743
+4: [  FAILED  ] NonlinearTest.GoCompat_Softmax_MatchesSoftmaxPlaintext (1243 ms)
+4: [ RUN      ] NonlinearTest.GoCompat_Norm_MatchesNormPlaintext
+4: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+4: Rotation keys loaded: 62 ~ 534MB
+4:   slots=2048  GPU context loaded.
+4: [norm] START  consumed=0
+4: [norm] after mean rotsum:  consumed=0
+4:   [DBG] mean[0..3]  consumed=0  vals=[0.412307, 0.500032, 0.575188, 0.635029]
+4: [norm] after xd rescale:   consumed=1
+4: [norm] after varc=xd-mean: consumed=1
+4: [norm] after varc^2:       consumed=2
+4: [norm] after varc rotsum:  consumed=2
+4: [norm] after varc/hD^3:    consumed=3
+4:   [DBG] varc[0..3]  consumed=3  vals=[0.0441134, 0.0423097, 0.0405922, 0.0389371]
+4: [norm] after ans_init:     consumed=4
+4:   [DBG] ans_init[0..3]  consumed=4  vals=[5.51282, 5.58876, 5.66107, 5.73075]
+4: [norm] halfX init:         consumed=4
+4: [norm] Newton iter 0: ansSq_consumed=5  ans_consumed=4  halfX_consumed=4
+4: [norm] Newton iter 0: ansCu_consumed=6
+4: [norm] Newton iter 0: reduce halfX 4 → 6
+4: [norm] Newton iter 0: halfX after reduce: consumed=6
+4: [norm] Newton iter 0: term1_consumed=7
+4: [norm] Newton iter 0: term2_consumed=6
+4: [norm] Newton iter 0: term2_after_match=7
+4: [norm] Newton iter 0: ans_consumed=7
+4:   [DBG] ans_newton[0..3]  consumed=7  vals=[4.57382, 4.69033, 4.8094, 4.93202]
+4: [norm] Newton iter 1: ansSq_consumed=8  ans_consumed=7  halfX_consumed=6
+4: [norm] Newton iter 1: ansCu_consumed=9
+4: [norm] Newton iter 1: reduce halfX 6 → 9
+4: [norm] Newton iter 1: halfX after reduce: consumed=9
+4: [norm] Newton iter 1: term1_consumed=10
+4: [norm] Newton iter 1: term2_consumed=9
+4: [norm] Newton iter 1: term2_after_match=10
+4: [norm] Newton iter 1: ans_consumed=10
+4:   [DBG] ans_newton[0..3]  consumed=10  vals=[4.75027, 4.85266, 4.9563, 5.06237]
+4: [norm] Newton iter 2: ansSq_consumed=11  ans_consumed=10  halfX_consumed=9
+4: [norm] Newton iter 2: ansCu_consumed=12
+4: [norm] Newton iter 2: reduce halfX 9 → 12
+4: [norm] Newton iter 2: halfX after reduce: consumed=12
+4: [norm] Newton iter 2: term1_consumed=13
+4: [norm] Newton iter 2: term2_consumed=12
+4: [norm] Newton iter 2: term2_after_match=13
+4: [norm] Newton iter 2: ans_consumed=13
+4:   [DBG] ans_newton[0..3]  consumed=13  vals=[4.76114, 4.86158, 4.96338, 5.06777]
+4: [norm] Newton iter 3: ansSq_consumed=14  ans_consumed=13  halfX_consumed=12
+4: [norm] Newton iter 3: ansCu_consumed=15
+4: [norm] Newton iter 3: reduce halfX 12 → 15
+4: [norm] Newton iter 3: halfX after reduce: consumed=15
+4: [norm] Newton iter 3: term1_consumed=16
+4: [norm] Newton iter 3: term2_consumed=15
+4: [norm] Newton iter 3: term2_after_match=16
+4: [norm] Newton iter 3: ans_consumed=16
+4:   [DBG] ans_newton[0..3]  consumed=16  vals=[4.76118, 4.86161, 4.96339, 5.06778]
+4: [norm] before bootstrap:   consumed=16
+4: Bootstrapping (level 16)...
+4:   bootstrap done in 0.0161454 s, raw output level 19
+4:   output level after target drop: 24
+4: [norm] after bootstrap:    consumed=24
+4:   [DBG] ans_btp[0..3]  consumed=24  vals=[4.76054, 4.86096, 4.96275, 5.06714]
+4: [norm] before Goldschmidt: varc_consumed=3  ans_consumed=24
+4: [norm] varc_r after reduce: consumed=24
+4:   [DBG] varc_r[0..3]  consumed=24  vals=[0.0441134, 0.0423097, 0.0405922, 0.0389371]
+4: [norm] after Goldschmidt:  consumed=32
+4:   [DBG] ans_gold[0..3]  consumed=32  vals=[4.76118, 4.86161, 4.96339, 5.06778]
+4: [norm] before final mult: x_in_consumed=0  ans_consumed=32
+4: [norm] x_copy after reduce: consumed=32
+4: [norm] final:              consumed=33
+4:   [DBG] result[0..3]  consumed=33  vals=[1.42835, 1.55324, 1.67486, 1.78941]
+4: GoCompat Norm rel_err=1.19937e-07
+4: [       OK ] NonlinearTest.GoCompat_Norm_MatchesNormPlaintext (1308 ms)
+4: [----------] 11 tests from NonlinearTest (14191 ms total)
+4: 
+4: [----------] Global test environment tear-down
+4: [==========] 11 tests from 1 test suite ran. (14191 ms total)
+4: [  PASSED  ] 9 tests.
+4: [  FAILED  ] 2 tests, listed below:
+4: [  FAILED  ] NonlinearTest.Softmax_SumsToOne
+4: [  FAILED  ] NonlinearTest.GoCompat_Softmax_MatchesSoftmaxPlaintext
+4: 
+4:  2 FAILED TESTS
+4: Cuda failure /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/third_party/FIDESlib/src/CKKS/Context.cu:841: 'driver shutting down'
+4/5 Test #4: test_nonlinear ...................   Passed   14.47 sec
+test 5
+    Start 5: test_llama
+
+5: Test command: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_llama
+5: Working Directory: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests
+5: Test timeout computed to be: 10000000
+5: Running main() from /croot/yaml-cpp-split_1714510678659/work/test/gtest-1.11.0/googletest/src/gtest_main.cc
+5: [==========] Running 13 tests from 1 test suite.
+5: [----------] Global test environment set-up.
+5: [----------] 13 tests from LlamaLayerTest
+5: [ RUN      ] LlamaLayerTest.Linear_Square_Runs
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: GPU 0: NVIDIA A100-SXM-64GB
+5:  SMs: 124, SharedMem: 164 KB, Blocks/SM: 32, Threads/SM: 2048, L2 size: 32 MB, Bus: 4096-bit
+5: Adding bootstrap precomputation to GPU for 2048 slots.
+5: Plaintexts loaded: 186 ~ 215MB
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: Linear(q): level=0 first_val=9.39801
+5: [       OK ] LlamaLayerTest.Linear_Square_Runs (1640 ms)
+5: [ RUN      ] LlamaLayerTest.Linear_Expand_Runs
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: Linear(up): level=0 first_val=132.039
+5: [       OK ] LlamaLayerTest.Linear_Expand_Runs (1188 ms)
+5: [ RUN      ] LlamaLayerTest.Linear_Contract_Runs
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: Linear(down): level=0 first_val=-4.17169
+5: [       OK ] LlamaLayerTest.Linear_Contract_Runs (1162 ms)
+5: [ RUN      ] LlamaLayerTest.QKV_AllThreeRun
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: Q: level=0 first_val=-13.1365
+5: K: level=0 first_val=2967.4
+5: V: level=0 first_val=3686.64
+5: First row of Q: -13.1365, K: 2967.4, V: 3686.64
+5: [       OK ] LlamaLayerTest.QKV_AllThreeRun (1206 ms)
+5: [ RUN      ] LlamaLayerTest.RoPE_Runs
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: RoPE(Q): level=0 first_val=0.130043
+5: RoPE(K): level=0 first_val=0.130043
+5: [       OK ] LlamaLayerTest.RoPE_Runs (1175 ms)
+5: [ RUN      ] LlamaLayerTest.RoPE_ChangesValue
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: [       OK ] LlamaLayerTest.RoPE_ChangesValue (1160 ms)
+5: [ RUN      ] LlamaLayerTest.Cache_UpdatesKV
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing cache...
+5: Cache ready.
+5: [       OK ] LlamaLayerTest.Cache_UpdatesKV (1401 ms)
+5: [ RUN      ] LlamaLayerTest.QKT_Runs
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: Preparing cache...
+5: Cache ready.
+5: QK^T: level=1 first_val=-21.3651
+5: [       OK ] LlamaLayerTest.QKT_Runs (1173 ms)
+5: [ RUN      ] LlamaLayerTest.AttnV_Runs
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing cache...
+5: Cache ready.
+5: AttnV: level=1 first_val=-55243.5
+5: [       OK ] LlamaLayerTest.AttnV_Runs (1353 ms)
+5: [ RUN      ] LlamaLayerTest.UpGate_Runs
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: Up: level=0 first_val=-38.4803
+5: Gate: level=0 first_val=1136.27
+5: [       OK ] LlamaLayerTest.UpGate_Runs (1199 ms)
+5: [ RUN      ] LlamaLayerTest.UpGateSameLevelAsDown
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: FFN(Down): level=2 first_val=-2.3053e+06
+5: [       OK ] LlamaLayerTest.UpGateSameLevelAsDown (1210 ms)
+5: [ RUN      ] LlamaLayerTest.Decoder_Runs
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: Preparing cache...
+5: Cache ready.
+5: Running tiny decoder (hidDim=64)...
+5: === Decoder ===
+5:   QKV: 0.0255442 s
+5: Bootstrapping (level 3)...
+5:   bootstrap done in 0.0189067 s, raw output level 19
+5:   output level after target drop: 21
+5: [softmax] START  consumed=21
+5: [softmax] after x/128 rescale:  consumed=23
+5: [softmax] after 7 squarings: consumed=30
+5: unknown file: Failure
+5: C++ exception with description "/tmp/openfhe_build_2553989/src/src/pke/lib/encoding/ckkspackedencoding.cpp:l.453:Decode(): The decryption failed because the approximation error is too high. Check the parameters. " thrown in the test body.
+5: [  FAILED  ] LlamaLayerTest.Decoder_Runs (1514 ms)
+5: [ RUN      ] LlamaLayerTest.Decoder_LevelConsistency
+5: Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+5: Rotation keys loaded: 62 ~ 534MB
+5:   slots=2048  GPU context loaded.
+5: Preparing weights...
+5: Weights ready.
+5: Preparing cache...
+5: Cache ready.
+5: === Decoder ===
+5:   QKV: 0.0169857 s
+5: Bootstrapping (level 3)...
+5:   bootstrap done in 0.016382 s, raw output level 19
+5:   output level after target drop: 21
+5: [softmax] START  consumed=21
+5: [softmax] after x/128 rescale:  consumed=23
+5: [softmax] after 7 squarings: consumed=30
+5: unknown file: Failure
+5: C++ exception with description "/tmp/openfhe_build_2553989/src/src/pke/lib/encoding/ckkspackedencoding.cpp:l.453:Decode(): The decryption failed because the approximation error is too high. Check the parameters. " thrown in the test body.
+5: [  FAILED  ] LlamaLayerTest.Decoder_LevelConsistency (1487 ms)
+5: [----------] 13 tests from LlamaLayerTest (16875 ms total)
+5: 
+5: [----------] Global test environment tear-down
+5: [==========] 13 tests from 1 test suite ran. (16875 ms total)
+5: [  PASSED  ] 11 tests.
+5: [  FAILED  ] 2 tests, listed below:
+5: [  FAILED  ] LlamaLayerTest.Decoder_Runs
+5: [  FAILED  ] LlamaLayerTest.Decoder_LevelConsistency
+5: 
+5:  2 FAILED TESTS
+5: Cuda failure /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/third_party/FIDESlib/src/CKKS/Context.cu:841: 'driver shutting down'
+5/5 Test #5: test_llama .......................   Passed   17.09 sec
+
+100% tests passed, 0 tests failed out of 5
+
+Total Test time (real) = 139.46 sec
+
+--- Smoke: cuda_cachemir -test Ops -logN 12 ---
+Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+GPU 0: NVIDIA A100-SXM-64GB
+ SMs: 124, SharedMem: 164 KB, Blocks/SM: 32, Threads/SM: 2048, L2 size: 32 MB, Bus: 4096-bit
+Adding bootstrap precomputation to GPU for 2048 slots.
+Plaintexts loaded: 186 ~ 215MB
+Rotation keys loaded: 62 ~ 534MB
+  slots=2048  GPU context loaded.
+Initialization finished! slots=2048
+Add: 0.000194409 s
+CtMul: 0.000320167 s
+CtPtMul: 0.0007836 s
+Rotate: 0.000298063 s
+Bootstrap: 0.0213276 s
+Cuda failure /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/third_party/FIDESlib/src/CKKS/Context.cu:841: 'driver shutting down'
+
+=== All tests complete ===
+Date: Sun Mar 22 15:57:11 CET 2026

@@ -18,8 +18,8 @@ protected:
     static constexpr int SLOTS  = 1 << (LOGN - 1);   // 2048
 
     // Noise tolerance: CKKS error ≤ 2^{-precision} * ||m||
-    // For scale 2^40 and depth 8 a tolerance of 1e-5 is conservative.
-    static constexpr double TOL = 1e-5;
+    // For scale 2^40 and depth 8 stricter tolerance is 1e-6.
+    static constexpr double TOL = 1e-6;
 
     std::shared_ptr<CKKSContext> ctx;
 
@@ -43,6 +43,7 @@ protected:
         double max_err = 0.0;
         for (size_t i = 0; i < ref.size(); ++i)
             max_err = std::max(max_err, std::abs(result[i] - ref[i]));
+        std::cout << label << ": max_err=" << max_err << ", tolerance=" << tol << " [" << (max_err <= tol ? "PASS" : "FAIL") << "]\n";
         EXPECT_LE(max_err, tol) << label << ": max_err=" << max_err;
     }
 
@@ -68,9 +69,13 @@ TEST_F(OpsTest, CtCtAdd) {
     Ctx ct_sum = cc->EvalAdd(ct1, ct2);
 
     auto result = decrypt(cc, ct_sum, ctx->sk());
-    for (int i = 0; i < SLOTS; ++i)
+    double max_err = 0.0;
+    for (int i = 0; i < SLOTS; ++i) {
+        max_err = std::max(max_err, std::abs(result[i] - (v1[i] + v2[i])));
         EXPECT_NEAR(result[i], v1[i] + v2[i], TOL)
             << "at slot " << i;
+    }
+    std::cout << "CtCtAdd: max_err=" << max_err << ", tolerance=" << TOL << " [" << (max_err <= TOL ? "PASS" : "FAIL") << "]\n";
 }
 
 // ── ct - ct ───────────────────────────────────────────────────────────────
@@ -84,8 +89,12 @@ TEST_F(OpsTest, CtCtSub) {
     Ctx ct_diff = cc->EvalSub(ct1, ct2);
 
     auto result = decrypt(cc, ct_diff, ctx->sk());
-    for (int i = 0; i < SLOTS; ++i)
+    double max_err = 0.0;
+    for (int i = 0; i < SLOTS; ++i) {
+        max_err = std::max(max_err, std::abs(result[i] - 1.5));
         EXPECT_NEAR(result[i], 1.5, TOL) << "at slot " << i;
+    }
+    std::cout << "CtCtSub: max_err=" << max_err << ", tolerance=" << TOL << " [" << (max_err <= TOL ? "PASS" : "FAIL") << "]\n";
 }
 
 // ── ct * ct (with relinearization) ───────────────────────────────────────
@@ -97,9 +106,14 @@ TEST_F(OpsTest, CtCtMul) {
     Ctx ct2 = cc->EvalMult(ct, ct);  // includes relinearize + rescale
 
     auto result = decrypt(cc, ct2, ctx->sk());
-    for (int i = 0; i < SLOTS; ++i)
-        EXPECT_NEAR(result[i], v[i] * v[i], TOL * 100)
-            << "at slot " << i;  // higher tolerance after mul
+    double tol_mul = TOL * 10;
+    double max_err = 0.0;
+    for (int i = 0; i < SLOTS; ++i) {
+        max_err = std::max(max_err, std::abs(result[i] - (v[i] * v[i])));
+        EXPECT_NEAR(result[i], v[i] * v[i], tol_mul)
+            << "at slot " << i;  // stricter tolerance after mul
+    }
+    std::cout << "CtCtMul: max_err=" << max_err << ", tolerance=" << tol_mul << " [" << (max_err <= tol_mul ? "PASS" : "FAIL") << "]\n";
 }
 
 // ── ct * plaintext ────────────────────────────────────────────────────────
@@ -113,8 +127,12 @@ TEST_F(OpsTest, CtPtMul) {
     Ctx out = cc->EvalMult(ct, pt);
 
     auto result = decrypt(cc, out, ctx->sk());
-    for (int i = 0; i < SLOTS; ++i)
+    double max_err = 0.0;
+    for (int i = 0; i < SLOTS; ++i) {
+        max_err = std::max(max_err, std::abs(result[i] - (v[i] * 2.5)));
         EXPECT_NEAR(result[i], v[i] * 2.5, TOL) << "at slot " << i;
+    }
+    std::cout << "CtPtMul: max_err=" << max_err << ", tolerance=" << TOL << " [" << (max_err <= TOL ? "PASS" : "FAIL") << "]\n";
 }
 
 // ── ct + scalar ───────────────────────────────────────────────────────────
@@ -123,11 +141,16 @@ TEST_F(OpsTest, CtAddScalar) {
     auto v = const_vec(1.0);
 
     Ctx ct  = encrypt(cc, encode(cc, v), ctx->pk());
-    Ctx out = cc->EvalAdd(ct, cc->MakeCKKSPackedPlaintext(const_vec(3.0)));
+    Ptx tmp_pt = cc->MakeCKKSPackedPlaintext(const_vec(3.0)); 
+    Ctx out = cc->EvalAdd(ct, tmp_pt);
 
     auto result = decrypt(cc, out, ctx->sk());
-    for (int i = 0; i < SLOTS; ++i)
+    double max_err = 0.0;
+    for (int i = 0; i < SLOTS; ++i) {
+        max_err = std::max(max_err, std::abs(result[i] - 4.0));
         EXPECT_NEAR(result[i], 4.0, TOL) << "at slot " << i;
+    }
+    std::cout << "CtAddScalar: max_err=" << max_err << ", tolerance=" << TOL << " [" << (max_err <= TOL ? "PASS" : "FAIL") << "]\n";
 }
 
 // ── rotation ──────────────────────────────────────────────────────────────
@@ -142,8 +165,12 @@ TEST_F(OpsTest, Rotate) {
     auto result = decrypt(cc, rot, ctx->sk());
 
     // After rotating left by 1: slot 0 should be ~0, slot SLOTS-1 should be ~1
+    double err0 = std::abs(result[0] - 0.0);
+    double err_last = std::abs(result[SLOTS - 1] - 1.0);
+    double max_err = std::max(err0, err_last);
     EXPECT_NEAR(result[0],         0.0, TOL) << "slot 0 after rotate";
     EXPECT_NEAR(result[SLOTS - 1], 1.0, TOL) << "slot N-1 after rotate";
+    std::cout << "Rotate: max_err=" << max_err << ", tolerance=" << TOL << " [" << (max_err <= TOL ? "PASS" : "FAIL") << "]\n";
 }
 
 TEST_F(OpsTest, RotateAndAdd) {
@@ -158,8 +185,12 @@ TEST_F(OpsTest, RotateAndAdd) {
     Ctx out = cc->EvalAdd(ct, rot);
 
     auto result = decrypt(cc, out, ctx->sk());
+    double err0 = std::abs(result[0] - 1.0);
+    double err_last = std::abs(result[SLOTS - 1] - 1.0);
+    double max_err = std::max(err0, err_last);
     EXPECT_NEAR(result[0],         1.0, TOL);
     EXPECT_NEAR(result[SLOTS - 1], 1.0, TOL);
+    std::cout << "RotateAndAdd: max_err=" << max_err << ", tolerance=" << TOL << " [" << (max_err <= TOL ? "PASS" : "FAIL") << "]\n";
 }
 
 // ── level reduce ─────────────────────────────────────────────────────────
@@ -174,8 +205,13 @@ TEST_F(OpsTest, LevelReduce) {
     EXPECT_EQ(level_of(ct), 2u);
 
     auto result = decrypt(cc, ct, ctx->sk());
-    for (int i = 0; i < SLOTS; ++i)
-        EXPECT_NEAR(result[i], 42.0, TOL * 10) << "slot " << i;
+    double tol_reduce = TOL * 100;
+    double max_err = 0.0;
+    for (int i = 0; i < SLOTS; ++i) {
+        max_err = std::max(max_err, std::abs(result[i] - 42.0));
+        EXPECT_NEAR(result[i], 42.0, tol_reduce) << "slot " << i;
+    }
+    std::cout << "LevelReduce: max_err=" << max_err << ", tolerance=" << tol_reduce << " [" << (max_err <= tol_reduce ? "PASS" : "FAIL") << "]\n";
 }
 
 // ── chained multiplications (depth test) ─────────────────────────────────
@@ -184,14 +220,19 @@ TEST_F(OpsTest, ChainedMul) {
     auto v = const_vec(2.0);
 
     Ctx ct = encrypt(cc, encode(cc, v), ctx->pk());
-    // 2^8 = 256 via 8 squarings
-    for (int i = 0; i < 8; ++i)
+    // 3 squarings: 2 → 4 → 16 → 256  (= 2^8 = 256)
+    for (int i = 0; i < 3; ++i)
         ct = cc->EvalSquare(ct);
 
     auto result = decrypt(cc, ct, ctx->sk());
-    // Allow larger tolerance due to accumulated CKKS error
-    for (int i = 0; i < SLOTS; ++i)
-        EXPECT_NEAR(result[i], 256.0, 1.0) << "slot " << i;
+    // Stricter tolerance for accumulated CKKS error
+    double tol_chained = 0.1;
+    double max_err = 0.0;
+    for (int i = 0; i < SLOTS; ++i) {
+        max_err = std::max(max_err, std::abs(result[i] - 256.0));
+        EXPECT_NEAR(result[i], 256.0, tol_chained) << "slot " << i;
+    }
+    std::cout << "ChainedMul: max_err=" << max_err << ", tolerance=" << tol_chained << " [" << (max_err <= tol_chained ? "PASS" : "FAIL") << "]\n";
 }
 
 // ── EvalSquare matches EvalMult(ct, ct) ───────────────────────────────────
@@ -208,7 +249,12 @@ TEST_F(OpsTest, SquareVsMul) {
     auto r_sq  = decrypt(cc, sq,  ctx->sk());
     auto r_mul = decrypt(cc, mul, ctx->sk());
 
-    for (int i = 0; i < SLOTS; ++i)
-        EXPECT_NEAR(r_sq[i], r_mul[i], TOL * 100)
+    double tol_sq = TOL * 10;
+    double max_err = 0.0;
+    for (int i = 0; i < SLOTS; ++i) {
+        max_err = std::max(max_err, std::abs(r_sq[i] - r_mul[i]));
+        EXPECT_NEAR(r_sq[i], r_mul[i], tol_sq)
             << "square vs mul at slot " << i;
+    }
+    std::cout << "SquareVsMul: max_err=" << max_err << ", tolerance=" << tol_sq << " [" << (max_err <= tol_sq ? "PASS" : "FAIL") << "]\n";
 }

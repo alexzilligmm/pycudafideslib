@@ -42,7 +42,7 @@ OPENFHE_TMP=/tmp/openfhe_build_$$
 mkdir -p "$DEPS"
 
 # ── Modules ───────────────────────────────────────────────────────────────
-module load cuda/12.6 gcc cmake
+module load cuda/12.6 gcc cmake nccl/2.22.3-1--gcc--12.2.0-cuda-12.2-spack0.22
 export CUDA_HOME=$(dirname "$(dirname "$(which nvcc)")")
 export CUDAHOSTCXX=$(which g++)
 export CXX=$(which g++)
@@ -127,6 +127,8 @@ cmake -S "$FIDESLIB_SRC" -B "$FIDESLIB_BUILD" \
     -DCUDA_PATH="$CUDA_HOME" \
     -DFIDESLIB_ARCH="$GPU_ARCH" \
     -DNVTX3_INCLUDE="$CUDA_HOME/targets/x86_64-linux/include" \
+    -DCMAKE_LIBRARY_PATH="$NCCL_HOME/lib" \
+    -DCMAKE_INCLUDE_PATH="$NCCL_HOME/include" \
     -DFIDESLIB_INSTALL_OPENFHE=OFF \
     -DFIDESLIB_COMPILE_TESTS=OFF \
     -DFIDESLIB_COMPILE_BENCHMARKS=OFF \

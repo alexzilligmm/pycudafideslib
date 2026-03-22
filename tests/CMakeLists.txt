@@ -21,5 +21,6 @@ enable_testing()
 
 add_cachemir_test(test_ops)
 add_cachemir_test(test_bootstrap)
+add_cachemir_test(test_primitives)
 add_cachemir_test(test_nonlinear)
 add_cachemir_test(test_llama)

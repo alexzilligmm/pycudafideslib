@@ -1,0 +1,158 @@
+=== Building cuda_cachemir ===
+Host: lrdn0362.leonardo.local  |  Date: Sun Mar 22 16:05:47 CET 2026
+CUDA_HOME:   /leonardo/prod/opt/compilers/cuda/12.6/none
+CUDAHOSTCXX: /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/gcc-12.2.0-lkcazt4letxjj4s7nlhzryoyivevsatz/bin/g++
+cmake version 3.27.9
+g++ (Spack GCC) 12.2.0
+Auto-detected GPU arch: 80-real
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEbinfhe.so
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEbinfhe.so.1
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEbinfhe.so.1.4.2
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEbinfhe_static.a
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEcore.so
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEcore.so.1
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEcore.so.1.4.2
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEcore_static.a
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEpke.so
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEpke.so.1
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEpke.so.1.4.2
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEpke_static.a
+FIDESlib: /leonardo_work/IscrC_eff-SAM2/azirilli/deps
+
+--- cmake configure ---
+CMake Warning (dev) at CMakeLists.txt:17 (find_package):
+  Policy CMP0144 is not set: find_package uses upper-case <PACKAGENAME>_ROOT
+  variables.  Run "cmake --help-policy CMP0144" for policy details.  Use the
+  cmake_policy command to set the policy and suppress this warning.
+
+  CMake variable FIDESLIB_ROOT is set to:
+
+    /leonardo_work/IscrC_eff-SAM2/azirilli/deps
+
+  For compatibility, find_package is ignoring the variable, but code in a
+  .cmake module might still use it.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- Using FIDESlib.
+-- Configuring done (0.1s)
+CMake Warning at tests/CMakeLists.txt:5 (add_executable):
+  Cannot generate a safe runtime search path for target test_ops because
+  files in some directories may conflict with libraries in implicit
+  directories:
+
+    runtime library [libgomp.so.1] in /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/gcc-12.2.0-lkcazt4letxjj4s7nlhzryoyivevsatz/lib64 may be hidden by files in:
+      /leonardo/home/userexternal/azirilli/miniconda3/lib
+
+  Some of these libraries may not be found correctly.
+Call Stack (most recent call first):
+  tests/CMakeLists.txt:22 (add_cachemir_test)
+
+
+CMake Warning at tests/CMakeLists.txt:5 (add_executable):
+  Cannot generate a safe runtime search path for target test_bootstrap
+  because files in some directories may conflict with libraries in implicit
+  directories:
+
+    runtime library [libgomp.so.1] in /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/gcc-12.2.0-lkcazt4letxjj4s7nlhzryoyivevsatz/lib64 may be hidden by files in:
+      /leonardo/home/userexternal/azirilli/miniconda3/lib
+
+  Some of these libraries may not be found correctly.
+Call Stack (most recent call first):
+  tests/CMakeLists.txt:23 (add_cachemir_test)
+
+
+CMake Warning at tests/CMakeLists.txt:5 (add_executable):
+  Cannot generate a safe runtime search path for target test_primitives
+  because files in some directories may conflict with libraries in implicit
+  directories:
+
+    runtime library [libgomp.so.1] in /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/gcc-12.2.0-lkcazt4letxjj4s7nlhzryoyivevsatz/lib64 may be hidden by files in:
+      /leonardo/home/userexternal/azirilli/miniconda3/lib
+
+  Some of these libraries may not be found correctly.
+Call Stack (most recent call first):
+  tests/CMakeLists.txt:24 (add_cachemir_test)
+
+
+CMake Warning at tests/CMakeLists.txt:5 (add_executable):
+  Cannot generate a safe runtime search path for target test_nonlinear
+  because files in some directories may conflict with libraries in implicit
+  directories:
+
+    runtime library [libgomp.so.1] in /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/gcc-12.2.0-lkcazt4letxjj4s7nlhzryoyivevsatz/lib64 may be hidden by files in:
+      /leonardo/home/userexternal/azirilli/miniconda3/lib
+
+  Some of these libraries may not be found correctly.
+Call Stack (most recent call first):
+  tests/CMakeLists.txt:25 (add_cachemir_test)
+
+
+CMake Warning at tests/CMakeLists.txt:5 (add_executable):
+  Cannot generate a safe runtime search path for target test_llama because
+  files in some directories may conflict with libraries in implicit
+  directories:
+
+    runtime library [libgomp.so.1] in /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/gcc-12.2.0-lkcazt4letxjj4s7nlhzryoyivevsatz/lib64 may be hidden by files in:
+      /leonardo/home/userexternal/azirilli/miniconda3/lib
+
+  Some of these libraries may not be found correctly.
+Call Stack (most recent call first):
+  tests/CMakeLists.txt:26 (add_cachemir_test)
+
+
+-- Generating done (0.2s)
+-- Build files have been written to: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80
+
+--- cmake build (16 jobs) ---
+[  4%] Building CUDA object CMakeFiles/cachemir_lib.dir/src/nonlinear.cu.o
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/src/nonlinear.cu(19): warning #177-D: function "dbg_lvl" was declared but never referenced
+  static void dbg_lvl(const char* label, const Ctx& ct) {
+              ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+[  8%] Linking CUDA device code CMakeFiles/cachemir_lib.dir/cmake_device_link.o
+[ 12%] Linking CXX static library libcachemir_lib.a
+[ 28%] Built target cachemir_lib
+[ 32%] Linking CUDA device code CMakeFiles/cuda_cachemir.dir/cmake_device_link.o
+[ 36%] Linking CUDA device code CMakeFiles/test_ops.dir/cmake_device_link.o
+[ 52%] Linking CUDA device code CMakeFiles/test_primitives.dir/cmake_device_link.o
+[ 52%] Linking CUDA device code CMakeFiles/test_nonlinear.dir/cmake_device_link.o
+[ 52%] Linking CUDA device code CMakeFiles/test_bootstrap.dir/cmake_device_link.o
+[ 52%] Building CUDA object tests/CMakeFiles/test_llama.dir/test_llama.cu.o
+[ 56%] Linking CXX executable ../bin/test_primitives
+[ 60%] Linking CXX executable ../bin/test_bootstrap
+[ 68%] Linking CXX executable ../bin/test_nonlinear
+[ 68%] Linking CXX executable bin/cuda_cachemir
+[ 72%] Linking CXX executable ../bin/test_ops
+[ 84%] Built target cuda_cachemir
+[ 84%] Built target test_bootstrap
+[ 88%] Built target test_nonlinear
+[ 88%] Built target test_primitives
+[ 92%] Built target test_ops
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_llama.cu(120): error: no suitable user-defined conversion from "const fideslib::Plaintext" to "Ctx" (aka "std::shared_ptr<fideslib::CiphertextImpl<unsigned int>>") exists
+              auto vals = decrypt(llama.cc(), w_ptx, llama.fhe->sk());
+                                              ^
+
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_llama.cu(136): error: no instance of overloaded function "fideslib::CryptoContextImpl<fideslib::DCRTPoly>::Encrypt" matches the argument list
+            argument types are: (std::shared_ptr<fideslib::PublicKeyImpl<fideslib::DCRTPoly>>, fideslib::Plaintext)
+            object type is: fideslib::CryptoContextImpl<fideslib::DCRTPoly>
+      Ctx x = llama.cc()->Encrypt(llama.fhe->pk(), llama.cc()->MakeCKKSPackedPlaintext(ptx_input));
+                          ^
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/include/fideslib/CryptoContext.hpp(104): note #3326-D: function "fideslib::CryptoContextImpl<fideslib::DCRTPoly>::Encrypt(const std::shared_ptr<fideslib::PrivateKeyImpl<fideslib::DCRTPoly>> &, fideslib::Plaintext &)" does not match because argument #1 does not match parameter
+   Ciphertext<DCRTPoly> Encrypt(const PrivateKey<DCRTPoly>& sk, Plaintext& pt);
+                        ^
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/include/fideslib/CryptoContext.hpp(103): note #3326-D: function "fideslib::CryptoContextImpl<fideslib::DCRTPoly>::Encrypt(fideslib::Plaintext &, const std::shared_ptr<fideslib::PrivateKeyImpl<fideslib::DCRTPoly>> &)" does not match because argument #1 does not match parameter
+   Ciphertext<DCRTPoly> Encrypt(Plaintext& pt, const PrivateKey<DCRTPoly>& sk);
+                        ^
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/include/fideslib/CryptoContext.hpp(102): note #3326-D: function "fideslib::CryptoContextImpl<fideslib::DCRTPoly>::Encrypt(const std::shared_ptr<fideslib::PublicKeyImpl<fideslib::DCRTPoly>> &, fideslib::Plaintext &)" does not match because argument #2 does not match parameter
+   Ciphertext<DCRTPoly> Encrypt(const PublicKey<DCRTPoly>& pk, Plaintext& pt);
+                        ^
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/include/fideslib/CryptoContext.hpp(101): note #3326-D: function "fideslib::CryptoContextImpl<fideslib::DCRTPoly>::Encrypt(fideslib::Plaintext &, const std::shared_ptr<fideslib::PublicKeyImpl<fideslib::DCRTPoly>> &)" does not match because argument #1 does not match parameter
+   Ciphertext<DCRTPoly> Encrypt(Plaintext& pt, const PublicKey<DCRTPoly>& pk);
+                        ^
+
+2 errors detected in the compilation of "/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_llama.cu".
+gmake[2]: *** [tests/CMakeFiles/test_llama.dir/build.make:77: tests/CMakeFiles/test_llama.dir/test_llama.cu.o] Error 2
+gmake[1]: *** [CMakeFiles/Makefile2:266: tests/CMakeFiles/test_llama.dir/all] Error 2
+gmake: *** [Makefile:101: all] Error 2

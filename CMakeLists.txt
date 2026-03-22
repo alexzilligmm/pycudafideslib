@@ -17,6 +17,24 @@ endif()
 find_package(fideslib QUIET CONFIG
     HINTS ${FIDESLIB_ROOT} /usr/local /opt/fideslib)
 
+# OpenFHE include dirs (openfhe.h lives under include/openfhe/pke/)
+find_package(OpenFHE QUIET CONFIG
+    HINTS ${FIDESLIB_ROOT}/lib/OpenFHE ${FIDESLIB_ROOT}/lib/cmake/OpenFHE)
+if(OpenFHE_FOUND)
+    # OpenFHEConfig.cmake sets OpenFHE_INCLUDE = .../include/openfhe
+    set(_openfhe_incdirs ${OpenFHE_INCLUDE}
+                         ${OpenFHE_INCLUDE}/pke
+                         ${OpenFHE_INCLUDE}/core
+                         ${OpenFHE_INCLUDE}/binfhe)
+else()
+    # Fallback: derive from FIDESLIB_ROOT
+    set(_openfhe_incdirs
+        ${FIDESLIB_ROOT}/include/openfhe
+        ${FIDESLIB_ROOT}/include/openfhe/pke
+        ${FIDESLIB_ROOT}/include/openfhe/core
+        ${FIDESLIB_ROOT}/include/openfhe/binfhe)
+endif()
+
 if(NOT fideslib_FOUND)
     message(STATUS "fideslib not found via find_package – fetching from GitHub")
     include(FetchContent)
@@ -45,11 +63,12 @@ set(COMMON_CXX_FLAGS -O3 -fopenmp)
 # ── main library (object lib shared by exe + tests) ───────────────────────
 add_library(cachemir_lib STATIC
     src/bootstrap.cu
+    src/primitives.cu
     src/linear.cu
     src/nonlinear.cu
     src/llama.cu
 )
-target_include_directories(cachemir_lib PUBLIC include)
+target_include_directories(cachemir_lib PUBLIC include ${_openfhe_incdirs})
 target_link_libraries(cachemir_lib PUBLIC fideslib::fideslib OpenMP::OpenMP_CXX)
 target_compile_options(cachemir_lib PRIVATE
     $<$<COMPILE_LANGUAGE:CUDA>:${COMMON_CUDA_FLAGS}>
@@ -73,6 +92,7 @@ set_target_properties(cuda_cachemir PROPERTIES
 )
 
 # ── tests ──────────────────────────────────────────────────────────────────
+enable_testing()
 option(CACHEMIR_BUILD_TESTS "Build test suite" ON)
 if(CACHEMIR_BUILD_TESTS)
     # Use GTest if available, otherwise download it

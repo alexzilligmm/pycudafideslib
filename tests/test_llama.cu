@@ -14,17 +14,19 @@
 #include <iostream>
 #include <numeric>
 
-Ctx bootstrap_to(const LlamaInference&, const Ctx&, uint32_t);
+Ctx bootstrap_to(LlamaInference&, const Ctx&, uint32_t);
 
 // ── fixture ───────────────────────────────────────────────────────────────
-// Tiny model: hidDim=16, expDim=64, numHeads=2, seqLen=8, logN=12
+// Tiny model: logN=12 → slots=2048.  Dimensions must satisfy HID_DIM²≥slots
+// and HID_DIM*SEQ_LEN≥slots for the cache.  hidDim=64, expDim=256, heads=4,
+// seqLen=32 satisfy all constraints.
 class LlamaLayerTest : public ::testing::Test {
 protected:
     static constexpr int LOGN    = 12;
-    static constexpr int HID_DIM = 16;
-    static constexpr int EXP_DIM = 64;
-    static constexpr int HEADS   = 2;
-    static constexpr int SEQ_LEN = 8;
+    static constexpr int HID_DIM = 64;
+    static constexpr int EXP_DIM = 256;
+    static constexpr int HEADS   = 4;
+    static constexpr int SEQ_LEN = 32;
 
     LlamaInference llama;
 
@@ -34,9 +36,7 @@ protected:
 
     Ctx make_input(double val = 0.5) {
         std::vector<double> msg(llama.slots, val);
-        return llama.cc()->Encrypt(
-            llama.fhe->pk(),
-            llama.cc()->MakeCKKSPackedPlaintext(msg));
+        return encrypt(llama.cc(), llama.cc()->MakeCKKSPackedPlaintext(msg), llama.fhe->pk());
     }
 
     std::vector<double> dec(const Ctx& ct) {
@@ -98,6 +98,25 @@ TEST_F(LlamaLayerTest, QKV_AllThreeRun) {
         << "Q and K should be at the same level";
     EXPECT_EQ(level_of(k), level_of(v))
         << "K and V should be at the same level";
+    
+    // Get decrypted values for comparison
+    auto q_vals = dec(q);
+    auto k_vals = dec(k);
+    auto v_vals = dec(v);
+    
+    std::cout << "\nFirst row of Q: " << q_vals[0] << ", K: " << k_vals[0] << ", V: " << v_vals[0] << "\n";
+    
+    // Compare with weight profile (plaintext weights should be random)
+    std::cout << "\nQ output sample (first 3 values): ";
+    for (int i = 0; i < std::min(3, (int)q_vals.size()); ++i)
+        std::cout << q_vals[i] << " ";
+    std::cout << "\nK output sample (first 3 values): ";
+    for (int i = 0; i < std::min(3, (int)k_vals.size()); ++i)
+        std::cout << k_vals[i] << " ";
+    std::cout << "\nV output sample (first 3 values): ";
+    for (int i = 0; i < std::min(3, (int)v_vals.size()); ++i)
+        std::cout << v_vals[i] << " ";
+    std::cout << "\n";
 }
 
 // ── RoPE ─────────────────────────────────────────────────────────────────

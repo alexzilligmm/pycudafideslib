@@ -1,33 +1,26 @@
-// bootstrap.cu
-// Bootstrapping via FIDESlib's GPU-accelerated EvalBootstrap().
-//
-// FIDESlib implements the full CKKS bootstrapping circuit (Han & Ki 2020):
-//   ModRaise → CoeffToSlot → EvalMod (composite sin) → SlotToCoeff
-// All stages run on GPU.  We simply delegate to cc->EvalBootstrap().
-//
-// The setup (EvalBootstrapSetup + EvalBootstrapKeyGen) is done once in
-// make_ckks_context() inside fideslib_wrapper.h.
-
 #include "llama.h"
 #include <iostream>
 
-// ── public API (used by nonlinear.cu and llama.cu) ────────────────────────
-
-// Bootstrap ct and drop it to `target_level` depth from fresh.
-// target_level == 0 means use ct at maximum freshness.
-Ctx bootstrap_to(const LlamaInference& llama, const Ctx& ct,
-                  uint32_t target_level) {
+Ctx bootstrap_to(LlamaInference& llama, const Ctx& ct,
+                  uint32_t target_remaining) {
     const CC& cc = llama.cc();
-    std::cout << "Bootstrapping (level " << level_of(ct)
-              << " → ~0, then drop to " << target_level << ")...\n";
+    std::cout << "Bootstrapping (level " << level_of(ct) << ")...\n";
 
     Timer t;
     Ctx fresh = cc->EvalBootstrap(ct);   // FIDESlib GPU-accelerated circuit
 
-    // Consume levels until we reach the desired starting point.
-    drop_levels(cc, fresh, target_level);
-
     std::cout << "  bootstrap done in " << t.elapsed_s()
-              << " s, output level " << level_of(fresh) << "\n";
+              << " s, raw output level " << level_of(fresh) << "\n";
+
+    if (target_remaining > 0) {
+        uint32_t total      = (uint32_t)llama.total_depth;
+        uint32_t fresh_con  = level_of(fresh);               // consumed now
+        uint32_t want_con   = (total > target_remaining)
+                              ? (total - target_remaining) : 0u;
+        if (fresh_con < want_con)
+            drop_levels(cc, fresh, want_con - fresh_con);
+    }
+
+    std::cout << "  output level after target drop: " << level_of(fresh) << "\n";
     return fresh;
 }

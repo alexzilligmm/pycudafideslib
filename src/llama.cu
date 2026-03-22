@@ -4,7 +4,7 @@
 #include <iostream>
 #include <random>
 
-Ctx bootstrap_to(const LlamaInference&, const Ctx&, uint32_t);
+Ctx bootstrap_to(LlamaInference&, const Ctx&, uint32_t);
 
 // ── make_llama ────────────────────────────────────────────────────────────
 LlamaInference make_llama(int logN, int hidDim, int expDim,
@@ -16,9 +16,17 @@ LlamaInference make_llama(int logN, int hidDim, int expDim,
 
     std::cout << "Creating FIDESlib/OpenFHE CKKS context (logN=" << logN << ")...\n";
     uint32_t btp_slots = (uint32_t)(1 << (logN - 1));
-    llama.fhe   = make_ckks_context(logN, /*depth=*/16, /*scale_bits=*/40,
-                                     btp_slots, /*bootstrap=*/true);
-    llama.slots = (int)btp_slots;
+    // depth=24, approx_bootstrap_depth=9 (hardcoded in fideslib_wrapper.h when
+    // enable_bootstrap=true).  total_depth=33 gives 14 remaining levels after
+    // bootstrap (bootstrap outputs consumed=19 empirically).
+    // total_depth is used by bootstrap_to to convert Go-style "remaining moduli"
+    // targets to FIDESlib "consumed levels".
+    constexpr int kDepth    = 24;
+    constexpr int kBtpExtra =  9;
+    llama.fhe         = make_ckks_context(logN, kDepth, /*scale_bits=*/40,
+                                           btp_slots, /*bootstrap=*/true);
+    llama.slots       = (int)btp_slots;
+    llama.total_depth = kDepth + kBtpExtra;
     std::cout << "  slots=" << llama.slots
               << "  GPU context loaded.\n";
     return llama;
@@ -28,19 +36,19 @@ LlamaInference make_llama(int logN, int hidDim, int expDim,
 
 static std::mt19937_64 rng_(42);
 
-static Ptx rand_plaintext(const LlamaInference& llama) {
+static Ptx rand_plaintext(LlamaInference& llama) {
     std::uniform_real_distribution<double> dist(-1.0, 1.0);
     std::vector<double> msg(llama.slots);
     for (auto& v : msg) v = dist(rng_);
     return llama.cc()->MakeCKKSPackedPlaintext(msg);
 }
 
-static Ctx rand_ciphertext(const LlamaInference& llama) {
+static Ctx rand_ciphertext(LlamaInference& llama) {
     std::uniform_real_distribution<double> dist(-20.0, 0.0);
     std::vector<double> msg(llama.slots);
     for (auto& v : msg) v = dist(rng_);
-    return llama.cc()->Encrypt(llama.fhe->pk(),
-               llama.cc()->MakeCKKSPackedPlaintext(msg));
+    Ptx pt = llama.cc()->MakeCKKSPackedPlaintext(msg);
+    return llama.cc()->Encrypt(llama.fhe->pk(), pt);
 }
 
 void prepare_weights(LlamaInference& llama,
@@ -103,9 +111,12 @@ Ctx decoder(LlamaInference& llama, const Ctx& x_in) {
         if (llama.parallel) {
             #pragma omp parallel sections
             {
-                #pragma omp section  { q = qkv_q(llama, x); }
-                #pragma omp section  { k = qkv_k(llama, x); }
-                #pragma omp section  { v = qkv_v(llama, x); }
+                #pragma omp section
+                { q = qkv_q(llama, x); }
+                #pragma omp section
+                { k = qkv_k(llama, x); }
+                #pragma omp section
+                { v = qkv_v(llama, x); }
             }
         } else {
             q = qkv_q(llama, x); k = qkv_k(llama, x); v = qkv_v(llama, x);
