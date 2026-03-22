@@ -6,6 +6,16 @@ static void eval_rescale(const CC& cc, Ctx& x) {
     cc->RescaleInPlace(x);
 }
 
+/// @brief Computes the inverse square root of a value using the Newton-Raphson iteration method.
+/// @param cc, the crypto context
+/// @param slots, the number of slots in the ciphertext
+/// @param x, the input ciphertext for which we want to compute 1/sqrt(x)
+/// @param ans_init, the initial guess for 1/sqrt(x)
+/// @param iters, the number of iterations to perform
+/// @return the i-th newton-raphson approximation of 1/sqrt(x)
+/// @todo: this function is instead canonical... if we find out
+///        that the goldschmidt method performs the same, we should replace
+///        this function with the goldschmidt method, which should be better.
 Ctx inv_sqrt_newton(const CC& cc, int slots,
                     const Ctx& x, const Ctx& ans_init, int iters) {
     Ctx ans = ans_init;
@@ -36,6 +46,22 @@ Ctx inv_sqrt_newton(const CC& cc, int slots,
     return ans;
 }
 
+/// @brief Computes the inverse square root of a value using the Goldschmidt iteration method.
+/// @param cc, the crypto context
+/// @param slots, the number of slots in the ciphertext
+/// @param x, the input ciphertext for which we want to compute 1/sqrt(x)
+/// @param ans_init, the initial guess for 1/sqrt(x)
+/// @param iters, the number of iterations to perform
+/// @return the i-th goldschmidt approximation of 1/sqrt(x)
+/// @todo: this function seems iffy because the naming seems wrong, since it
+///        is actually computing almost the same algorithm as newton-raphson.
+///        The second iffy part is that, after the scalar mult with -0.5, there
+///        is no rescale, which is a bit strange. I assume the reasoning for the 
+///        lack of a rescale is that the value is then multiplied with sqrt_ct and
+///        ans, which will both be rescaled, so the rescale will be implicitly
+///        applied there? We should thoroughly check this, because it promises
+///        to cost just 2 levels, and to also parallelize those multiplications.
+///        Which I am wary to believe.
 Ctx goldschmidt_inv_sqrt(const CC& cc, int slots,
                           const Ctx& x, const Ctx& ans_init, int iters) {
     Ctx ans = ans_init;
@@ -64,6 +90,16 @@ Ctx goldschmidt_inv_sqrt(const CC& cc, int slots,
     return ans;
 }
 
+/// @brief Computes the inverse of a value using the Newton iteration method.
+/// @param cc, the crypto context
+/// @param one_ct, a ciphertext encrypting the value 1, used for the iteration
+/// @param res, the initial guess for the inverse, which will be updated in-place
+/// @param dnm, the input ciphertext for which we want to compute the inverse, updated in-place
+/// @param iters, the number of iterations to perform
+/// @return the i-th Newton approximation of the inverse
+/// @todo: differently from the goldschmidt approximation, this function on the other
+///        hand assumes that the input ciphertexts can be updated in-place.
+///        We should make the two functions consistent, no?
 Ctx newton_inverse(const CC& cc, Ctx one_ct, Ctx res, Ctx dnm, int iters) {
     for (int i = 0; i < iters; ++i) {
         cc->EvalSquareInPlace(res);
@@ -78,6 +114,20 @@ Ctx newton_inverse(const CC& cc, Ctx one_ct, Ctx res, Ctx dnm, int iters) {
     return dnm;
 }
 
+/// @brief Computes the inverse of a value using the Goldschmidt iteration method.
+/// @param cc, the crypto context
+/// @param slots, the number of slots in the ciphertext
+/// @param a, the ciphertext a, for which we want to compute 1/a
+/// @param x0_init, the initial guess for 1/a
+/// @param iters, the number of iterations to perform
+/// @return the i-th goldschmidt approximation of 1/a
+/// @todo: this function assumes the inputs could be reused after the call,
+///        as it makes copies and avoids touching the inputs. If we want
+///        to ensure maximum performance, we could allow in-place updates
+///        of the inputs!
+///        The reason why it would make sense, is because during runtime
+///        we will likely never reuse something that was used as input to this
+///        function.
 Ctx goldschmidt_inv(const CC& cc, int slots,
                     const Ctx& a, const Ctx& x0_init, int iters) {
     Ctx x0 = x0_init;  
@@ -106,6 +156,14 @@ Ctx goldschmidt_inv(const CC& cc, int slots,
     return x0;
 }
 
+
+/// @brief Computes the Chebyshev coefficients for approximating a
+/// function f on the interval [a, b] with a polynomial of given degree.
+/// @param f, the function to approximate
+/// @param a, the lower bound of the interval
+/// @param b, the upper bound of the interval
+/// @param degree, the degree of the approximating polynomial
+/// @return a vector containing the Chebyshev coefficients
 std::vector<double> chebyshev_coeffs(
         std::function<double(double)> f, double a, double b, int degree) {
     int n = degree + 1;        // 128 nodes for degree=127
@@ -141,6 +199,17 @@ std::vector<double> chebyshev_coeffs(
     return coeffs;
 }
 
+/// @brief Evaluates a Chebyshev series at a given point.
+/// @param cc, the crypto context 
+/// @param x, the input ciphertext at which to evaluate the series
+/// @param f, the function to approximate
+/// @param a, the lower bound of the interval
+/// @param b, the upper bound of the interval 
+/// @param degree, the degree of the approximating polynomial
+/// @return the ciphertext resulting from evaluating the Chebyshev series at x
+/// @todo: this function recomputes the Chebyshev coefficients every time it is called.
+///        We need a variant where the chebyshev coefficients are precomputed and
+///        passed as input.
 Ctx eval_chebyshev(const CC& cc, const Ctx& x,
                    std::function<double(double)> f,
                    double a, double b, int degree) {
@@ -162,6 +231,13 @@ Ctx eval_chebyshev(const CC& cc, const Ctx& x,
     return cc->EvalChebyshevSeries(u, coeffs, -1.0, 1.0);
 }
 
+/// @brief Computes a weighted sum of ciphertexts, where the weights are given as plaintexts.
+/// @param cc, the crypto context
+/// @param cts, the vector of ciphertexts to be summed 
+/// @param weights, the vector of plaintext weights corresponding to each ciphertext
+/// @return the resulting ciphertext of the weighted sum
+/// @todo: this function assumes input cyphertexts are all of the same shape.
+///       We should add checks to ensure this is the case, and throw an error if not.
 Ctx eval_linear_wsum(const CC& cc,
                      std::vector<Ctx>& cts,
                      const std::vector<double>& weights) {
@@ -173,6 +249,11 @@ Ctx eval_linear_wsum(const CC& cc,
     return result;
 }
 
+/// @brief Helper function to repeatedly square a ciphertext
+/// @param cc, the crypto context
+/// @param x, the input ciphertext to be squared
+/// @param iters, the number of times to square the ciphertext
+/// @return the resulting ciphertext after repeated squaring
 Ctx exp_squaring(const CC& cc, Ctx x, int iters) {
     for (int i = 0; i < iters; ++i) {
         cc->EvalSquareInPlace(x);
