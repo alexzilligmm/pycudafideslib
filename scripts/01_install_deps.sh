@@ -32,8 +32,8 @@ export HTTPS_PROXY="$https_proxy"
 export OMP_NUM_THREADS=16
 
 # ── Paths ─────────────────────────────────────────────────────────────────
-REPO=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe
-DEPS=/leonardo_work/IscrC_eff-SAM2/azirilli/deps
+REPO="$(pwd)"
+DEPS="$REPO/deps"
 FIDESLIB_SRC="$REPO/third_party/FIDESlib"
 FIDESLIB_BUILD="$FIDESLIB_SRC/build"
 OPENFHE_PATCH="$FIDESLIB_SRC/deps/openfhe-1.4.2.patch"

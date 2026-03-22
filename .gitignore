@@ -1,2 +1,5 @@
 deps/
 logs/
+build/
+
+*.slurm

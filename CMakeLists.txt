@@ -40,7 +40,7 @@ if(NOT fideslib_FOUND)
     include(FetchContent)
     FetchContent_Declare(
         fideslib
-        GIT_REPOSITORY https://github.com/CAPS-UMU/FIDESlib.git
+        GIT_REPOSITORY https://github.com/alexzilligmm/pyFIDESlib.git
         GIT_TAG        main
     )
     set(FIDESLIB_INSTALL_OPENFHE ON  CACHE BOOL "" FORCE)

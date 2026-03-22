@@ -29,9 +29,9 @@ export https_proxy='http://login01:3140'
 export OMP_NUM_THREADS=16
 
 # ── Paths ────────────────────────────────────────────────────────────────
-DEPS=/leonardo_work/IscrC_eff-SAM2/azirilli/deps
-REPO=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe
-BUILD_DIR="$REPO/build_sm80"
+REPO="$(pwd)"
+DEPS="$REPO/deps"
+BUILD_DIR="$REPO/build"
 
 # ── Modules ──────────────────────────────────────────────────────────────
 module load cuda/12.6 gcc cmake
