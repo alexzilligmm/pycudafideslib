@@ -1,6 +1,2 @@
-test_ops 7 1.78794
-test_bootstrap 7 1.02243
-test_primitives 7 13.0755
-test_nonlinear 7 2.05241
-test_llama 6 2.95627
+test_basics 1 1.4349
 ---

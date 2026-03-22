@@ -153,69 +153,17 @@ cuda_cachemir/fast:
 .PHONY : cuda_cachemir/fast
 
 #=============================================================================
-# Target rules for targets named test_ops
+# Target rules for targets named test_basics
 
 # Build rule for target.
-test_ops: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_ops
-.PHONY : test_ops
+test_basics: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_basics
+.PHONY : test_basics
 
 # fast build rule for target.
-test_ops/fast:
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_ops.dir/build.make tests/CMakeFiles/test_ops.dir/build
-.PHONY : test_ops/fast
-
-#=============================================================================
-# Target rules for targets named test_bootstrap
-
-# Build rule for target.
-test_bootstrap: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_bootstrap
-.PHONY : test_bootstrap
-
-# fast build rule for target.
-test_bootstrap/fast:
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_bootstrap.dir/build.make tests/CMakeFiles/test_bootstrap.dir/build
-.PHONY : test_bootstrap/fast
-
-#=============================================================================
-# Target rules for targets named test_primitives
-
-# Build rule for target.
-test_primitives: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_primitives
-.PHONY : test_primitives
-
-# fast build rule for target.
-test_primitives/fast:
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_primitives.dir/build.make tests/CMakeFiles/test_primitives.dir/build
-.PHONY : test_primitives/fast
-
-#=============================================================================
-# Target rules for targets named test_nonlinear
-
-# Build rule for target.
-test_nonlinear: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_nonlinear
-.PHONY : test_nonlinear
-
-# fast build rule for target.
-test_nonlinear/fast:
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_nonlinear.dir/build.make tests/CMakeFiles/test_nonlinear.dir/build
-.PHONY : test_nonlinear/fast
-
-#=============================================================================
-# Target rules for targets named test_llama
-
-# Build rule for target.
-test_llama: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 test_llama
-.PHONY : test_llama
-
-# fast build rule for target.
-test_llama/fast:
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_llama.dir/build.make tests/CMakeFiles/test_llama.dir/build
-.PHONY : test_llama/fast
+test_basics/fast:
+	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_basics.dir/build.make tests/CMakeFiles/test_basics.dir/build
+.PHONY : test_basics/fast
 
 src/bootstrap.o: src/bootstrap.cu.o
 .PHONY : src/bootstrap.o
@@ -372,11 +320,7 @@ help:
 	@echo "... test"
 	@echo "... cachemir_lib"
 	@echo "... cuda_cachemir"
-	@echo "... test_bootstrap"
-	@echo "... test_llama"
-	@echo "... test_nonlinear"
-	@echo "... test_ops"
-	@echo "... test_primitives"
+	@echo "... test_basics"
 	@echo "... src/bootstrap.o"
 	@echo "... src/bootstrap.i"
 	@echo "... src/bootstrap.s"

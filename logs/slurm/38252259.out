@@ -1,0 +1,69 @@
+=== Running cuda_cachemir tests ===
+Host: lrdn0007.leonardo.local  |  Date: Sun Mar 22 17:13:07 CET 2026
+Loading gcc/12.2.0
+  Loading requirement: zlib-ng/2.1.6-jkgunjc zstd/1.5.6-uq5yyux binutils/2.42
+
+Loading cmake/3.27.9
+  Loading requirement: nghttp2/1.57.0-634bffh curl/8.7.1 gmake/4.4.1-phqmvks
+    ncurses/6.5-svfl57u
+
+--- Test binaries ---
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 17:07 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_basics
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 16:25 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_bootstrap
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 16:25 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_llama
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 16:25 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_nonlinear
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 16:25 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_ops
+-rwxr-xr-x 1 azirilli interactive 17M Mar 22 16:25 /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_primitives
+
+--- ctest (verbose) ---
+Internal ctest changing into directory: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80
+UpdateCTestConfiguration  from :/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/DartConfiguration.tcl
+Test project /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: test_basics
+
+1: Test command: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/bin/test_basics
+1: Working Directory: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/tests
+1: Test timeout computed to be: 10000000
+1: Running main() from /croot/yaml-cpp-split_1714510678659/work/test/gtest-1.11.0/googletest/src/gtest_main.cc
+1: [==========] Running 1 test from 1 test suite.
+1: [----------] Global test environment set-up.
+1: [----------] 1 test from OpsTest
+1: [ RUN      ] OpsTest.CtCtAdd
+1: GPU 0: NVIDIA A100-SXM-64GB
+1:  SMs: 124, SharedMem: 164 KB, Blocks/SM: 32, Threads/SM: 2048, L2 size: 32 MB, Bus: 4096-bit
+1: CtCtAdd: max_err=1.99278e-07, tolerance=1e-06 [PASS]
+1: [       OK ] OpsTest.CtCtAdd (1384 ms)
+1: [----------] 1 test from OpsTest (1384 ms total)
+1: 
+1: [----------] Global test environment tear-down
+1: [==========] 1 test from 1 test suite ran. (1384 ms total)
+1: [  PASSED  ] 1 test.
+1: Cuda failure /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/third_party/FIDESlib/src/CKKS/Context.cu:841: 'driver shutting down'
+1/1 Test #1: test_basics ......................   Passed    1.55 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   1.58 sec
+
+--- Smoke: cuda_cachemir -test Ops -logN 12 ---
+Creating FIDESlib/OpenFHE CKKS context (logN=12)...
+GPU 0: NVIDIA A100-SXM-64GB
+ SMs: 124, SharedMem: 164 KB, Blocks/SM: 32, Threads/SM: 2048, L2 size: 32 MB, Bus: 4096-bit
+Adding bootstrap precomputation to GPU for 2048 slots.
+Plaintexts loaded: 186 ~ 215MB
+Rotation keys loaded: 62 ~ 534MB
+  slots=2048  GPU context loaded.
+Initialization finished! slots=2048
+No tests for now 
+Cuda failure /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/third_party/FIDESlib/src/CKKS/Context.cu:841: 'driver shutting down'
+
+=== All tests complete ===
+Date: Sun Mar 22 17:13:11 CET 2026

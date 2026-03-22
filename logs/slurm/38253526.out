@@ -1,0 +1,83 @@
+=== Building cuda_cachemir ===
+Host: lrdn3237.leonardo.local  |  Date: Sun Mar 22 17:45:38 CET 2026
+Loading gcc/12.2.0
+  Loading requirement: zlib-ng/2.1.6-jkgunjc zstd/1.5.6-uq5yyux binutils/2.42
+
+Loading cmake/3.27.9
+  Loading requirement: nghttp2/1.57.0-634bffh curl/8.7.1 gmake/4.4.1-phqmvks
+    ncurses/6.5-svfl57u
+CUDA_HOME:   /leonardo/prod/opt/compilers/cuda/12.6/none
+CUDAHOSTCXX: /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/gcc-12.2.0-lkcazt4letxjj4s7nlhzryoyivevsatz/bin/g++
+cmake version 3.27.9
+g++ (Spack GCC) 12.2.0
+Auto-detected GPU arch: 80-real
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEbinfhe.so
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEbinfhe.so.1
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEbinfhe.so.1.4.2
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEbinfhe_static.a
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEcore.so
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEcore.so.1
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEcore.so.1.4.2
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEcore_static.a
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEpke.so
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEpke.so.1
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEpke.so.1.4.2
+/leonardo_work/IscrC_eff-SAM2/azirilli/deps/lib/libOPENFHEpke_static.a
+FIDESlib: /leonardo_work/IscrC_eff-SAM2/azirilli/deps
+
+--- cmake configure ---
+CMake Warning (dev) at CMakeLists.txt:17 (find_package):
+  Policy CMP0144 is not set: find_package uses upper-case <PACKAGENAME>_ROOT
+  variables.  Run "cmake --help-policy CMP0144" for policy details.  Use the
+  cmake_policy command to set the policy and suppress this warning.
+
+  CMake variable FIDESLIB_ROOT is set to:
+
+    /leonardo_work/IscrC_eff-SAM2/azirilli/deps
+
+  For compatibility, find_package is ignoring the variable, but code in a
+  .cmake module might still use it.
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+-- Using FIDESlib.
+-- Configuring done (0.3s)
+CMake Warning at tests/CMakeLists.txt:5 (add_executable):
+  Cannot generate a safe runtime search path for target test_basics because
+  files in some directories may conflict with libraries in implicit
+  directories:
+
+    runtime library [libgomp.so.1] in /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/gcc-12.2.0-lkcazt4letxjj4s7nlhzryoyivevsatz/lib64 may be hidden by files in:
+      /leonardo/home/userexternal/azirilli/miniconda3/lib
+
+  Some of these libraries may not be found correctly.
+Call Stack (most recent call first):
+  tests/CMakeLists.txt:22 (add_cachemir_test)
+
+
+-- Generating done (0.2s)
+-- Build files have been written to: /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80
+
+--- cmake build (16 jobs) ---
+[ 53%] Built target cachemir_lib
+[ 76%] Built target cuda_cachemir
+[ 84%] Building CUDA object tests/CMakeFiles/test_basics.dir/test_basics.cu.o
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_basics.cu(32): error: class "fideslib::CryptoContextImpl<fideslib::DCRTPoly>" has no member "GetScalingFactorBits"
+                    << " scale=2^" << cc->GetScalingFactorBits()
+                                          ^
+
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_basics.cu(33): error: class "fideslib::CryptoContextImpl<fideslib::DCRTPoly>" has no member "GetBootstrappingFlag"
+                    << " btp=" << cc->GetBootstrappingFlag() << "\n";
+                                      ^
+
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_basics.cu(40): error: class "fideslib::CryptoContextImpl<fideslib::DCRTPoly>" has no member "GetScalingFactorBits"
+     cc->GetScalingFactorBits()
+         ^
+
+/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_basics.cu(41): error: class "fideslib::CryptoContextImpl<fideslib::DCRTPoly>" has no member "GetBootstrappingFlag"
+     cc->GetBootstrappingFlag()
+         ^
+
+4 errors detected in the compilation of "/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/tests/test_basics.cu".
+gmake[2]: *** [tests/CMakeFiles/test_basics.dir/build.make:77: tests/CMakeFiles/test_basics.dir/test_basics.cu.o] Error 2
+gmake[1]: *** [CMakeFiles/Makefile2:154: tests/CMakeFiles/test_basics.dir/all] Error 2
+gmake: *** [Makefile:101: all] Error 2

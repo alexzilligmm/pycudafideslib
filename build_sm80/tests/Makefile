@@ -127,194 +127,42 @@ depend:
 .PHONY : depend
 
 # Convenience name for target.
-tests/CMakeFiles/test_ops.dir/rule:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_ops.dir/rule
-.PHONY : tests/CMakeFiles/test_ops.dir/rule
+tests/CMakeFiles/test_basics.dir/rule:
+	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_basics.dir/rule
+.PHONY : tests/CMakeFiles/test_basics.dir/rule
 
 # Convenience name for target.
-test_ops: tests/CMakeFiles/test_ops.dir/rule
-.PHONY : test_ops
+test_basics: tests/CMakeFiles/test_basics.dir/rule
+.PHONY : test_basics
 
 # fast build rule for target.
-test_ops/fast:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_ops.dir/build.make tests/CMakeFiles/test_ops.dir/build
-.PHONY : test_ops/fast
+test_basics/fast:
+	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_basics.dir/build.make tests/CMakeFiles/test_basics.dir/build
+.PHONY : test_basics/fast
 
-# Convenience name for target.
-tests/CMakeFiles/test_bootstrap.dir/rule:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_bootstrap.dir/rule
-.PHONY : tests/CMakeFiles/test_bootstrap.dir/rule
-
-# Convenience name for target.
-test_bootstrap: tests/CMakeFiles/test_bootstrap.dir/rule
-.PHONY : test_bootstrap
-
-# fast build rule for target.
-test_bootstrap/fast:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_bootstrap.dir/build.make tests/CMakeFiles/test_bootstrap.dir/build
-.PHONY : test_bootstrap/fast
-
-# Convenience name for target.
-tests/CMakeFiles/test_primitives.dir/rule:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_primitives.dir/rule
-.PHONY : tests/CMakeFiles/test_primitives.dir/rule
-
-# Convenience name for target.
-test_primitives: tests/CMakeFiles/test_primitives.dir/rule
-.PHONY : test_primitives
-
-# fast build rule for target.
-test_primitives/fast:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_primitives.dir/build.make tests/CMakeFiles/test_primitives.dir/build
-.PHONY : test_primitives/fast
-
-# Convenience name for target.
-tests/CMakeFiles/test_nonlinear.dir/rule:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_nonlinear.dir/rule
-.PHONY : tests/CMakeFiles/test_nonlinear.dir/rule
-
-# Convenience name for target.
-test_nonlinear: tests/CMakeFiles/test_nonlinear.dir/rule
-.PHONY : test_nonlinear
-
-# fast build rule for target.
-test_nonlinear/fast:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_nonlinear.dir/build.make tests/CMakeFiles/test_nonlinear.dir/build
-.PHONY : test_nonlinear/fast
-
-# Convenience name for target.
-tests/CMakeFiles/test_llama.dir/rule:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_llama.dir/rule
-.PHONY : tests/CMakeFiles/test_llama.dir/rule
-
-# Convenience name for target.
-test_llama: tests/CMakeFiles/test_llama.dir/rule
-.PHONY : test_llama
-
-# fast build rule for target.
-test_llama/fast:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_llama.dir/build.make tests/CMakeFiles/test_llama.dir/build
-.PHONY : test_llama/fast
-
-test_bootstrap.o: test_bootstrap.cu.o
-.PHONY : test_bootstrap.o
+test_basics.o: test_basics.cu.o
+.PHONY : test_basics.o
 
 # target to build an object file
-test_bootstrap.cu.o:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_bootstrap.dir/build.make tests/CMakeFiles/test_bootstrap.dir/test_bootstrap.cu.o
-.PHONY : test_bootstrap.cu.o
+test_basics.cu.o:
+	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_basics.dir/build.make tests/CMakeFiles/test_basics.dir/test_basics.cu.o
+.PHONY : test_basics.cu.o
 
-test_bootstrap.i: test_bootstrap.cu.i
-.PHONY : test_bootstrap.i
-
-# target to preprocess a source file
-test_bootstrap.cu.i:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_bootstrap.dir/build.make tests/CMakeFiles/test_bootstrap.dir/test_bootstrap.cu.i
-.PHONY : test_bootstrap.cu.i
-
-test_bootstrap.s: test_bootstrap.cu.s
-.PHONY : test_bootstrap.s
-
-# target to generate assembly for a file
-test_bootstrap.cu.s:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_bootstrap.dir/build.make tests/CMakeFiles/test_bootstrap.dir/test_bootstrap.cu.s
-.PHONY : test_bootstrap.cu.s
-
-test_llama.o: test_llama.cu.o
-.PHONY : test_llama.o
-
-# target to build an object file
-test_llama.cu.o:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_llama.dir/build.make tests/CMakeFiles/test_llama.dir/test_llama.cu.o
-.PHONY : test_llama.cu.o
-
-test_llama.i: test_llama.cu.i
-.PHONY : test_llama.i
+test_basics.i: test_basics.cu.i
+.PHONY : test_basics.i
 
 # target to preprocess a source file
-test_llama.cu.i:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_llama.dir/build.make tests/CMakeFiles/test_llama.dir/test_llama.cu.i
-.PHONY : test_llama.cu.i
+test_basics.cu.i:
+	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_basics.dir/build.make tests/CMakeFiles/test_basics.dir/test_basics.cu.i
+.PHONY : test_basics.cu.i
 
-test_llama.s: test_llama.cu.s
-.PHONY : test_llama.s
-
-# target to generate assembly for a file
-test_llama.cu.s:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_llama.dir/build.make tests/CMakeFiles/test_llama.dir/test_llama.cu.s
-.PHONY : test_llama.cu.s
-
-test_nonlinear.o: test_nonlinear.cu.o
-.PHONY : test_nonlinear.o
-
-# target to build an object file
-test_nonlinear.cu.o:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_nonlinear.dir/build.make tests/CMakeFiles/test_nonlinear.dir/test_nonlinear.cu.o
-.PHONY : test_nonlinear.cu.o
-
-test_nonlinear.i: test_nonlinear.cu.i
-.PHONY : test_nonlinear.i
-
-# target to preprocess a source file
-test_nonlinear.cu.i:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_nonlinear.dir/build.make tests/CMakeFiles/test_nonlinear.dir/test_nonlinear.cu.i
-.PHONY : test_nonlinear.cu.i
-
-test_nonlinear.s: test_nonlinear.cu.s
-.PHONY : test_nonlinear.s
+test_basics.s: test_basics.cu.s
+.PHONY : test_basics.s
 
 # target to generate assembly for a file
-test_nonlinear.cu.s:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_nonlinear.dir/build.make tests/CMakeFiles/test_nonlinear.dir/test_nonlinear.cu.s
-.PHONY : test_nonlinear.cu.s
-
-test_ops.o: test_ops.cu.o
-.PHONY : test_ops.o
-
-# target to build an object file
-test_ops.cu.o:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_ops.dir/build.make tests/CMakeFiles/test_ops.dir/test_ops.cu.o
-.PHONY : test_ops.cu.o
-
-test_ops.i: test_ops.cu.i
-.PHONY : test_ops.i
-
-# target to preprocess a source file
-test_ops.cu.i:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_ops.dir/build.make tests/CMakeFiles/test_ops.dir/test_ops.cu.i
-.PHONY : test_ops.cu.i
-
-test_ops.s: test_ops.cu.s
-.PHONY : test_ops.s
-
-# target to generate assembly for a file
-test_ops.cu.s:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_ops.dir/build.make tests/CMakeFiles/test_ops.dir/test_ops.cu.s
-.PHONY : test_ops.cu.s
-
-test_primitives.o: test_primitives.cu.o
-.PHONY : test_primitives.o
-
-# target to build an object file
-test_primitives.cu.o:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_primitives.dir/build.make tests/CMakeFiles/test_primitives.dir/test_primitives.cu.o
-.PHONY : test_primitives.cu.o
-
-test_primitives.i: test_primitives.cu.i
-.PHONY : test_primitives.i
-
-# target to preprocess a source file
-test_primitives.cu.i:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_primitives.dir/build.make tests/CMakeFiles/test_primitives.dir/test_primitives.cu.i
-.PHONY : test_primitives.cu.i
-
-test_primitives.s: test_primitives.cu.s
-.PHONY : test_primitives.s
-
-# target to generate assembly for a file
-test_primitives.cu.s:
-	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_primitives.dir/build.make tests/CMakeFiles/test_primitives.dir/test_primitives.cu.s
-.PHONY : test_primitives.cu.s
+test_basics.cu.s:
+	cd /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80 && $(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_basics.dir/build.make tests/CMakeFiles/test_basics.dir/test_basics.cu.s
+.PHONY : test_basics.cu.s
 
 # Help Target
 help:
@@ -325,26 +173,10 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... test"
-	@echo "... test_bootstrap"
-	@echo "... test_llama"
-	@echo "... test_nonlinear"
-	@echo "... test_ops"
-	@echo "... test_primitives"
-	@echo "... test_bootstrap.o"
-	@echo "... test_bootstrap.i"
-	@echo "... test_bootstrap.s"
-	@echo "... test_llama.o"
-	@echo "... test_llama.i"
-	@echo "... test_llama.s"
-	@echo "... test_nonlinear.o"
-	@echo "... test_nonlinear.i"
-	@echo "... test_nonlinear.s"
-	@echo "... test_ops.o"
-	@echo "... test_ops.i"
-	@echo "... test_ops.s"
-	@echo "... test_primitives.o"
-	@echo "... test_primitives.i"
-	@echo "... test_primitives.s"
+	@echo "... test_basics"
+	@echo "... test_basics.o"
+	@echo "... test_basics.i"
+	@echo "... test_basics.s"
 .PHONY : help
 
 

@@ -82,11 +82,7 @@ clean: tests/clean
 # Directory level rules for directory tests
 
 # Recursive "all" directory target.
-tests/all: tests/CMakeFiles/test_ops.dir/all
-tests/all: tests/CMakeFiles/test_bootstrap.dir/all
-tests/all: tests/CMakeFiles/test_primitives.dir/all
-tests/all: tests/CMakeFiles/test_nonlinear.dir/all
-tests/all: tests/CMakeFiles/test_llama.dir/all
+tests/all: tests/CMakeFiles/test_basics.dir/all
 .PHONY : tests/all
 
 # Recursive "preinstall" directory target.
@@ -94,11 +90,7 @@ tests/preinstall:
 .PHONY : tests/preinstall
 
 # Recursive "clean" directory target.
-tests/clean: tests/CMakeFiles/test_ops.dir/clean
-tests/clean: tests/CMakeFiles/test_bootstrap.dir/clean
-tests/clean: tests/CMakeFiles/test_primitives.dir/clean
-tests/clean: tests/CMakeFiles/test_nonlinear.dir/clean
-tests/clean: tests/CMakeFiles/test_llama.dir/clean
+tests/clean: tests/CMakeFiles/test_basics.dir/clean
 .PHONY : tests/clean
 
 #=============================================================================
@@ -154,134 +146,30 @@ CMakeFiles/cuda_cachemir.dir/clean:
 .PHONY : CMakeFiles/cuda_cachemir.dir/clean
 
 #=============================================================================
-# Target rules for target tests/CMakeFiles/test_ops.dir
+# Target rules for target tests/CMakeFiles/test_basics.dir
 
 # All Build rule for target.
-tests/CMakeFiles/test_ops.dir/all: CMakeFiles/cachemir_lib.dir/all
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_ops.dir/build.make tests/CMakeFiles/test_ops.dir/depend
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_ops.dir/build.make tests/CMakeFiles/test_ops.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles --progress-num=20,21,22 "Built target test_ops"
-.PHONY : tests/CMakeFiles/test_ops.dir/all
+tests/CMakeFiles/test_basics.dir/all: CMakeFiles/cachemir_lib.dir/all
+	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_basics.dir/build.make tests/CMakeFiles/test_basics.dir/depend
+	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_basics.dir/build.make tests/CMakeFiles/test_basics.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles --progress-num=11,12,13 "Built target test_basics"
+.PHONY : tests/CMakeFiles/test_basics.dir/all
 
 # Build rule for subdir invocation for target.
-tests/CMakeFiles/test_ops.dir/rule: cmake_check_build_system
+tests/CMakeFiles/test_basics.dir/rule: cmake_check_build_system
 	$(CMAKE_COMMAND) -E cmake_progress_start /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles 10
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_ops.dir/all
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_basics.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles 0
-.PHONY : tests/CMakeFiles/test_ops.dir/rule
+.PHONY : tests/CMakeFiles/test_basics.dir/rule
 
 # Convenience name for target.
-test_ops: tests/CMakeFiles/test_ops.dir/rule
-.PHONY : test_ops
+test_basics: tests/CMakeFiles/test_basics.dir/rule
+.PHONY : test_basics
 
 # clean rule for target.
-tests/CMakeFiles/test_ops.dir/clean:
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_ops.dir/build.make tests/CMakeFiles/test_ops.dir/clean
-.PHONY : tests/CMakeFiles/test_ops.dir/clean
-
-#=============================================================================
-# Target rules for target tests/CMakeFiles/test_bootstrap.dir
-
-# All Build rule for target.
-tests/CMakeFiles/test_bootstrap.dir/all: CMakeFiles/cachemir_lib.dir/all
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_bootstrap.dir/build.make tests/CMakeFiles/test_bootstrap.dir/depend
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_bootstrap.dir/build.make tests/CMakeFiles/test_bootstrap.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles --progress-num=11,12,13 "Built target test_bootstrap"
-.PHONY : tests/CMakeFiles/test_bootstrap.dir/all
-
-# Build rule for subdir invocation for target.
-tests/CMakeFiles/test_bootstrap.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles 10
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_bootstrap.dir/all
-	$(CMAKE_COMMAND) -E cmake_progress_start /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles 0
-.PHONY : tests/CMakeFiles/test_bootstrap.dir/rule
-
-# Convenience name for target.
-test_bootstrap: tests/CMakeFiles/test_bootstrap.dir/rule
-.PHONY : test_bootstrap
-
-# clean rule for target.
-tests/CMakeFiles/test_bootstrap.dir/clean:
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_bootstrap.dir/build.make tests/CMakeFiles/test_bootstrap.dir/clean
-.PHONY : tests/CMakeFiles/test_bootstrap.dir/clean
-
-#=============================================================================
-# Target rules for target tests/CMakeFiles/test_primitives.dir
-
-# All Build rule for target.
-tests/CMakeFiles/test_primitives.dir/all: CMakeFiles/cachemir_lib.dir/all
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_primitives.dir/build.make tests/CMakeFiles/test_primitives.dir/depend
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_primitives.dir/build.make tests/CMakeFiles/test_primitives.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles --progress-num=23,24,25 "Built target test_primitives"
-.PHONY : tests/CMakeFiles/test_primitives.dir/all
-
-# Build rule for subdir invocation for target.
-tests/CMakeFiles/test_primitives.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles 10
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_primitives.dir/all
-	$(CMAKE_COMMAND) -E cmake_progress_start /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles 0
-.PHONY : tests/CMakeFiles/test_primitives.dir/rule
-
-# Convenience name for target.
-test_primitives: tests/CMakeFiles/test_primitives.dir/rule
-.PHONY : test_primitives
-
-# clean rule for target.
-tests/CMakeFiles/test_primitives.dir/clean:
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_primitives.dir/build.make tests/CMakeFiles/test_primitives.dir/clean
-.PHONY : tests/CMakeFiles/test_primitives.dir/clean
-
-#=============================================================================
-# Target rules for target tests/CMakeFiles/test_nonlinear.dir
-
-# All Build rule for target.
-tests/CMakeFiles/test_nonlinear.dir/all: CMakeFiles/cachemir_lib.dir/all
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_nonlinear.dir/build.make tests/CMakeFiles/test_nonlinear.dir/depend
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_nonlinear.dir/build.make tests/CMakeFiles/test_nonlinear.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles --progress-num=17,18,19 "Built target test_nonlinear"
-.PHONY : tests/CMakeFiles/test_nonlinear.dir/all
-
-# Build rule for subdir invocation for target.
-tests/CMakeFiles/test_nonlinear.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles 10
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_nonlinear.dir/all
-	$(CMAKE_COMMAND) -E cmake_progress_start /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles 0
-.PHONY : tests/CMakeFiles/test_nonlinear.dir/rule
-
-# Convenience name for target.
-test_nonlinear: tests/CMakeFiles/test_nonlinear.dir/rule
-.PHONY : test_nonlinear
-
-# clean rule for target.
-tests/CMakeFiles/test_nonlinear.dir/clean:
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_nonlinear.dir/build.make tests/CMakeFiles/test_nonlinear.dir/clean
-.PHONY : tests/CMakeFiles/test_nonlinear.dir/clean
-
-#=============================================================================
-# Target rules for target tests/CMakeFiles/test_llama.dir
-
-# All Build rule for target.
-tests/CMakeFiles/test_llama.dir/all: CMakeFiles/cachemir_lib.dir/all
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_llama.dir/build.make tests/CMakeFiles/test_llama.dir/depend
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_llama.dir/build.make tests/CMakeFiles/test_llama.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles --progress-num=14,15,16 "Built target test_llama"
-.PHONY : tests/CMakeFiles/test_llama.dir/all
-
-# Build rule for subdir invocation for target.
-tests/CMakeFiles/test_llama.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles 10
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 tests/CMakeFiles/test_llama.dir/all
-	$(CMAKE_COMMAND) -E cmake_progress_start /leonardo_work/IscrC_eff-SAM2/azirilli/cuda-cachemir/pycudafhe/build_sm80/CMakeFiles 0
-.PHONY : tests/CMakeFiles/test_llama.dir/rule
-
-# Convenience name for target.
-test_llama: tests/CMakeFiles/test_llama.dir/rule
-.PHONY : test_llama
-
-# clean rule for target.
-tests/CMakeFiles/test_llama.dir/clean:
-	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_llama.dir/build.make tests/CMakeFiles/test_llama.dir/clean
-.PHONY : tests/CMakeFiles/test_llama.dir/clean
+tests/CMakeFiles/test_basics.dir/clean:
+	$(MAKE) $(MAKESILENT) -f tests/CMakeFiles/test_basics.dir/build.make tests/CMakeFiles/test_basics.dir/clean
+.PHONY : tests/CMakeFiles/test_basics.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.

@@ -6,7 +6,6 @@
 
 Ctx bootstrap_to(LlamaInference&, const Ctx&, uint32_t);
 
-// ── make_llama ────────────────────────────────────────────────────────────
 LlamaInference make_llama(int logN, int hidDim, int expDim,
                            int seqLen, int numHeads, bool parallel) {
     LlamaInference llama;
@@ -16,11 +15,6 @@ LlamaInference make_llama(int logN, int hidDim, int expDim,
 
     std::cout << "Creating FIDESlib/OpenFHE CKKS context (logN=" << logN << ")...\n";
     uint32_t btp_slots = (uint32_t)(1 << (logN - 1));
-    // depth=24, approx_bootstrap_depth=9 (hardcoded in fideslib_wrapper.h when
-    // enable_bootstrap=true).  total_depth=33 gives 14 remaining levels after
-    // bootstrap (bootstrap outputs consumed=19 empirically).
-    // total_depth is used by bootstrap_to to convert Go-style "remaining moduli"
-    // targets to FIDESlib "consumed levels".
     constexpr int kDepth    = 24;
     constexpr int kBtpExtra =  9;
     llama.fhe         = make_ckks_context(logN, kDepth, /*scale_bits=*/40,
@@ -31,8 +25,6 @@ LlamaInference make_llama(int logN, int hidDim, int expDim,
               << "  GPU context loaded.\n";
     return llama;
 }
-
-// ── weight / cache helpers ────────────────────────────────────────────────
 
 static std::mt19937_64 rng_(42);
 
@@ -96,7 +88,6 @@ void prepare_cache(LlamaInference& llama,
     std::cout << "Cache ready.\n";
 }
 
-// ── Decoder ───────────────────────────────────────────────────────────────
 Ctx decoder(LlamaInference& llama, const Ctx& x_in) {
     const CC& cc = llama.cc();
     std::cout << "=== Decoder ===\n";
@@ -104,7 +95,6 @@ Ctx decoder(LlamaInference& llama, const Ctx& x_in) {
 
     Ctx x = x_in;
 
-    // ── Self-attention ────────────────────────────────────────────────────
     Ctx q, k, v;
     {
         Timer tq;
@@ -142,7 +132,6 @@ Ctx decoder(LlamaInference& llama, const Ctx& x_in) {
     x = bootstrap_to(llama, x, 15);
     x = norm(llama, x, 9);
 
-    // ── FFN ───────────────────────────────────────────────────────────────
     auto [up_ct, gate_ct] = up_gate(llama, x);
 
     gate_ct = bootstrap_to(llama, gate_ct, 9);
@@ -164,7 +153,6 @@ Ctx decoder(LlamaInference& llama, const Ctx& x_in) {
     return y;
 }
 
-// ── Model ─────────────────────────────────────────────────────────────────
 Ctx model(LlamaInference& llama, const Ctx& x_in) {
     Timer t;
     Ctx x = x_in;

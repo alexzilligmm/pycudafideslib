@@ -72,9 +72,5 @@ set(CMAKE_MAKEFILE_PRODUCTS
 set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/cachemir_lib.dir/DependInfo.cmake"
   "CMakeFiles/cuda_cachemir.dir/DependInfo.cmake"
-  "tests/CMakeFiles/test_ops.dir/DependInfo.cmake"
-  "tests/CMakeFiles/test_bootstrap.dir/DependInfo.cmake"
-  "tests/CMakeFiles/test_primitives.dir/DependInfo.cmake"
-  "tests/CMakeFiles/test_nonlinear.dir/DependInfo.cmake"
-  "tests/CMakeFiles/test_llama.dir/DependInfo.cmake"
+  "tests/CMakeFiles/test_basics.dir/DependInfo.cmake"
   )
