@@ -1,5 +1,6 @@
 #include "ckks_primitives.h"
 #include <cmath>
+#include <map>
 #include <functional>
 
 static void eval_rescale(const CC& cc, Ctx& x) {
@@ -234,35 +235,35 @@ Ctx eval_chebyshev_f(const CC& cc, const Ctx& x,
 
 /// @brief Converts coefficients from standard monomial basis to Chebyshev basis.
 /// @param poly_coeffs Coefficients in standard basis [a0, a1, a2, ..., an]
+/// @param a, the lower bound of the interval
+/// @param b, the upper bound of the interval
 /// @return Coefficients in Chebyshev basis [c0, c1, c2, ..., cn]
-std::vector<double> standard_to_chebyshev(const std::vector<double>& poly_coeffs) {
+std::vector<double> standard_to_chebyshev(const std::vector<double>& poly_coeffs, double a, double b) {
     size_t n = poly_coeffs.size();
     if (n == 0) return {};
+
+    double alpha = (b - a) / 2.0;
+    double beta  = (a + b) / 2.0;
+
     std::vector<double> cheb_coeffs(n, 0.0);
 
-    // x * T_n = 0.5 * (T_{n+1} + T_{n-1})
     for (int i = n - 1; i >= 0; --i) {
         std::vector<double> next_cheb(n, 0.0);
-        
         for (size_t j = 0; j < n; ++j) {
             if (cheb_coeffs[j] == 0) continue;
 
             if (j == 0) {
-                // x * T_0 = T_1
-                next_cheb[1] += cheb_coeffs[j];
+                next_cheb[1] += cheb_coeffs[j] * alpha;
             } else {
-                // x * T_j = 0.5 * T_{j+1} + 0.5 * T_{j-1}
-                if (j + 1 < n) 
-                    next_cheb[j + 1] += 0.5 * cheb_coeffs[j];
-                
-                next_cheb[j - 1] += 0.5 * cheb_coeffs[j];
+                if (j + 1 < n) next_cheb[j + 1] += 0.5 * cheb_coeffs[j] * alpha;
+                next_cheb[j - 1] += 0.5 * cheb_coeffs[j] * alpha;
             }
+
+            next_cheb[j] += cheb_coeffs[j] * beta;
         }
-        
         next_cheb[0] += poly_coeffs[i];
         cheb_coeffs = next_cheb;
     }
-
     return cheb_coeffs;
 }
 
