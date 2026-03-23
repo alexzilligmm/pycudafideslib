@@ -61,10 +61,7 @@ TEST_F(OpsTest, NewtonRaphsonInv) {
     auto guess_pt = encode(cc, std::vector<double>(slots, init_guess));
     auto guess_ct = encrypt(cc, guess_pt, ctx->pk());
 
-    auto one_pt = encode(cc, std::vector<double>(slots, 1.0));
-    auto one_ct = encrypt(cc, one_pt, ctx->pk());
-
-    Ctx ct_inv = newton_inverse(cc, one_ct, guess_ct, ct, /*iterations=*/5);
+    Ctx ct_inv = newton_inverse(cc, guess_ct, ct, /*iterations=*/5);
     
     auto result = decrypt(cc, ct_inv, ctx->sk());
     

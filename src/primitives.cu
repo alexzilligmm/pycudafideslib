@@ -92,7 +92,6 @@ Ctx goldschmidt_inv_sqrt(const CC& cc, int slots,
 
 /// @brief Computes the inverse of a value using the Newton iteration method.
 /// @param cc, the crypto context
-/// @param one_ct, a ciphertext encrypting the value 1, used for the iteration TODO: this too is useless wtf
 /// @param res, the initial guess for the inverse, which will be updated in-place
 /// @param dnm, the input ciphertext for which we want to compute the inverse, updated in-place
 /// @param iters, the number of iterations to perform
@@ -100,18 +99,19 @@ Ctx goldschmidt_inv_sqrt(const CC& cc, int slots,
 /// @todo: differently from the goldschmidt approximation, this function on the other
 ///        hand assumes that the input ciphertexts can be updated in-place.
 ///        We should make the two functions consistent, no?
-Ctx newton_inverse(const CC& cc, Ctx one_ct, Ctx res, Ctx dnm, int iters) {
+Ctx newton_inverse(const CC& cc, Ctx res, Ctx dnm, int iters) {
     for (int i = 0; i < iters; ++i) {
-        cc->EvalSquareInPlace(res);
+        match_level(cc, res, dnm);
+        Ctx a = cc->EvalMult(res, dnm);
+        cc->EvalNegateInPlace(a);
+        cc->EvalAddInPlace(a, 2.0);
+        eval_rescale(cc, a);
+
+        match_level(cc, res, a);
+        res = cc->EvalMult(res, a);
         eval_rescale(cc, res);
-
-        Ctx tmp = cc->EvalAdd(res, 1.0);
-
-        match_level(cc, dnm, tmp);
-        dnm = cc->EvalMult(dnm, tmp);
-        eval_rescale(cc, dnm);
     }
-    return dnm;
+    return res;
 }
 
 /// @brief Computes the inverse of a value using the Goldschmidt iteration method.

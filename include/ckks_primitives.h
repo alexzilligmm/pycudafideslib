@@ -23,7 +23,7 @@ Ctx goldschmidt_inv_sqrt(const CC& cc, int slots,
 
 Ctx exp_squaring(const CC& cc, Ctx x, int iters);
 
-Ctx newton_inverse(const CC& cc, Ctx one_ct, Ctx res, Ctx dnm, int iters);
+Ctx newton_inverse(const CC& cc, Ctx res, Ctx dnm, int iters);
 
 Ctx goldschmidt_inv(const CC& cc, int slots,
                     const Ctx& a, const Ctx& x0_init, int iters);
