@@ -39,7 +39,10 @@ mkdir -p "$DEPS"
 
 # ── Modules ───────────────────────────────────────────────────────────────
 # first check if module is available as a command
-export CUDA_HOME="/usr/local/cuda-12.6"
+# if cuda_home is not set, try setting it like so
+if [ -z "$CUDA_HOME" ] &>/dev/null; then
+    export CUDA_HOME="/usr/local/cuda-12.6"
+fi
 export CUDA_NVCC="$CUDA_HOME/bin/nvcc"
 export CUDAHOSTCXX=$(which g++)
 export CXX=$(which g++)
