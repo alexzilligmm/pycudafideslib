@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 project(cuda_cachemir LANGUAGES CXX CUDA)
 
+if(POLICY CMP0144)
+    cmake_policy(SET CMP0144 NEW)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
@@ -8,12 +12,16 @@ set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 # ── GPU architecture (override at cmake invocation time) ───────────────────
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     set(CMAKE_CUDA_ARCHITECTURES 80)   # A100 default
+    message("GPU architecture not found, defaulting to 80 (A100's arch)")
 endif()
 
 # ── FIDESlib ───────────────────────────────────────────────────────────────
 # FIDESlib wraps OpenFHE 1.4.2 with GPU acceleration + bootstrapping.
 # If pre-installed: cmake -DFIDESLIB_ROOT=<prefix> ..
 # If not found, fall back to FetchContent (requires internet).
+if(DEFINED FIDESLIB_ROOT AND NOT DEFINED fideslib_ROOT)
+    set(fideslib_ROOT "${FIDESLIB_ROOT}")
+endif()
 find_package(fideslib QUIET CONFIG
     HINTS ${FIDESLIB_ROOT} /usr/local /opt/fideslib)
 

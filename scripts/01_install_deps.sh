@@ -24,10 +24,6 @@ echo "=== Installing OpenFHE + FIDESlib ==="
 echo "Host: $(hostname)  |  Date: $(date)"
 
 # ── Proxy ──────────────────────────────────────────────────────────────────
-export http_proxy='http://login01:3140'
-export https_proxy='http://login01:3140'
-export HTTP_PROXY="$http_proxy"
-export HTTPS_PROXY="$https_proxy"
 
 export OMP_NUM_THREADS=16
 
@@ -42,15 +38,70 @@ OPENFHE_TMP=/tmp/openfhe_build_$$
 mkdir -p "$DEPS"
 
 # ── Modules ───────────────────────────────────────────────────────────────
-module load cuda/12.6 gcc cmake nccl/2.22.3-1--gcc--12.2.0-cuda-12.2-spack0.22
-export CUDA_HOME=$(dirname "$(dirname "$(which nvcc)")")
+# first check if module is available as a command
+export CUDA_HOME="/usr/local/cuda-12.6"
+export CUDA_NVCC="$CUDA_HOME/bin/nvcc"
 export CUDAHOSTCXX=$(which g++)
 export CXX=$(which g++)
 export CC=$(which gcc)
 echo "CUDA_HOME:   $CUDA_HOME"
+echo "CUDA_NVCC:   $CUDA_NVCC"
 echo "CUDAHOSTCXX: $CUDAHOSTCXX"
 cmake --version | head -1
 g++ --version | head -1
+
+# ── NCCL preflight ─────────────────────────────────────────────────────────
+_nccl_lib=""
+_nccl_inc=""
+
+if [ -n "$NCCL_HOME" ]; then
+    if [ -f "$NCCL_HOME/lib/libnccl.so" ]; then
+        _nccl_lib="$NCCL_HOME/lib"
+    fi
+    if [ -f "$NCCL_HOME/include/nccl.h" ]; then
+        _nccl_inc="$NCCL_HOME/include"
+    fi
+fi
+
+for d in \
+    "$CUDA_HOME/lib64" \
+    "$CUDA_HOME/targets/x86_64-linux/lib" \
+    /usr/lib/x86_64-linux-gnu \
+    /usr/lib \
+    /usr/local/lib
+do
+    if [ -z "$_nccl_lib" ] && [ -f "$d/libnccl.so" ]; then
+        _nccl_lib="$d"
+    fi
+done
+
+for d in \
+    "$CUDA_HOME/include" \
+    "$CUDA_HOME/targets/x86_64-linux/include" \
+    /usr/include \
+    /usr/local/include
+do
+    if [ -z "$_nccl_inc" ] && [ -f "$d/nccl.h" ]; then
+        _nccl_inc="$d"
+    fi
+done
+
+if [ -z "$_nccl_lib" ] || [ -z "$_nccl_inc" ]; then
+    echo ""
+    echo "ERROR: NCCL not found (required for this FIDESlib build)."
+    echo "Missing lib path:    ${_nccl_lib:-<not found>}"
+    echo "Missing include path:${_nccl_inc:-<not found>}"
+    echo ""
+    echo "Install NCCL runtime and headers (e.g. libnccl2 + libnccl-dev),"
+    echo "or export NCCL_HOME to a valid prefix containing lib/libnccl.so"
+    echo "and include/nccl.h before running this script."
+    exit 1
+fi
+
+export NCCL_HOME="$(dirname "$_nccl_inc")"
+echo "NCCL_HOME:   $NCCL_HOME"
+echo "NCCL lib:    $_nccl_lib"
+echo "NCCL include:$_nccl_inc"
 
 # ── GPU architecture ───────────────────────────────────────────────────────
 _cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits 2>/dev/null | head -1)
@@ -123,12 +174,13 @@ cmake -S "$FIDESLIB_SRC" -B "$FIDESLIB_BUILD" \
     -DOPENFHE_INSTALL_PREFIX="$DEPS" \
     -DCMAKE_C_COMPILER="$CC" \
     -DCMAKE_CXX_COMPILER="$CXX" \
+    -DCMAKE_CUDA_COMPILER="$CUDA_NVCC" \
     -DCMAKE_CUDA_HOST_COMPILER="$CUDAHOSTCXX" \
     -DCUDA_PATH="$CUDA_HOME" \
     -DFIDESLIB_ARCH="$GPU_ARCH" \
     -DNVTX3_INCLUDE="$CUDA_HOME/targets/x86_64-linux/include" \
-    -DCMAKE_LIBRARY_PATH="$NCCL_HOME/lib" \
-    -DCMAKE_INCLUDE_PATH="$NCCL_HOME/include" \
+    -DCMAKE_LIBRARY_PATH="$_nccl_lib" \
+    -DCMAKE_INCLUDE_PATH="$_nccl_inc" \
     -DFIDESLIB_INSTALL_OPENFHE=OFF \
     -DFIDESLIB_COMPILE_TESTS=OFF \
     -DFIDESLIB_COMPILE_BENCHMARKS=OFF \

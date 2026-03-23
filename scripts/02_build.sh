@@ -24,8 +24,6 @@ set -e
 echo "=== Building cuda_cachemir ==="
 echo "Host: $(hostname)  |  Date: $(date)"
 
-export http_proxy='http://login01:3140'
-export https_proxy='http://login01:3140'
 export OMP_NUM_THREADS=16
 
 # ── Paths ────────────────────────────────────────────────────────────────
@@ -34,12 +32,13 @@ DEPS="$REPO/deps"
 BUILD_DIR="$REPO/build"
 
 # ── Modules ──────────────────────────────────────────────────────────────
-module load cuda/12.6 gcc cmake
-export CUDA_HOME=$(dirname "$(dirname "$(which nvcc)")")
-export CUDAHOSTCXX=$(which g++)
-export CXX=$(which g++)
-export CC=$(which gcc)
+export CUDA_HOME="/usr/local/cuda-12.6"
+export CUDA_NVCC="$CUDA_HOME/bin/nvcc"
+export CUDAHOSTCXX="/usr/bin/g++"
+export CXX="/usr/bin/g++"
+export CC="/usr/bin/gcc"
 echo "CUDA_HOME:   $CUDA_HOME"
+echo "CUDA_NVCC:   $CUDA_NVCC"
 echo "CUDAHOSTCXX: $CUDAHOSTCXX"
 cmake --version | head -1
 g++ --version | head -1
@@ -72,9 +71,10 @@ cmake -S . -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$CC" \
     -DCMAKE_CXX_COMPILER="$CXX" \
+    -DCMAKE_CUDA_COMPILER="$CUDA_NVCC" \
     -DCMAKE_CUDA_HOST_COMPILER="$CUDAHOSTCXX" \
     -DCUDA_PATH="$CUDA_HOME" \
-    -DFIDESLIB_ARCH="$GPU_ARCH" \
+    -DCMAKE_CUDA_ARCHITECTURES="$GPU_ARCH" \
     -DFIDESLIB_ROOT="$DEPS" \
     -DCACHEMIR_BUILD_TESTS=ON \
     2>&1

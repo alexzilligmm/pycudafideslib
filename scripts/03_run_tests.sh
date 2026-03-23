@@ -30,8 +30,16 @@ DEPS="$REPO/deps"
 BUILD_DIR="$REPO/build"
 
 # ── Modules ──────────────────────────────────────────────────────────────
-module load cuda/12.6 gcc cmake
-export CUDA_HOME=$(dirname "$(dirname "$(which nvcc)")")
+export CUDA_HOME="/usr/local/cuda-12.6"
+
+# ── Sanitize environment (remove Conda libstdc++ conflicts) ─────────────────
+# Unset Conda variables that may inject older compiler stubs
+# Remove /opt/miniconda3 from PATH to force system compilers/libraries
+export PATH="/usr/local/cuda-12.6/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Ensure system libraries are prioritized (e.g., system libstdc++.so.6 with newer GLIBCXX symbols)
+if [ -d "/usr/lib/x86_64-linux-gnu" ]; then
+    export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
+fi
 
 # ── Verify build exists ───────────────────────────────────────────────────
 if [ ! -d "$BUILD_DIR" ]; then
