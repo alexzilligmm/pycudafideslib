@@ -319,6 +319,50 @@ Ctx eval_polynomial(const CC& cc, const Ctx& x, const std::vector<double>& coeff
     return result;
 }
 
+/// @brief Evaluates a polynomial at a given point using a logarithmic depth method.
+/// @param cc, the crypto context
+/// @param x, the input ciphertext at which to evaluate the polynomial
+/// @param coeffs, the coefficients of the polynomial in standard basis [a0, a1, a2, ..., an] representing a0 + a1*x + a2*x^2 + ... + an*x^n
+/// @return the ciphertext resulting from evaluating the polynomial at
+Ctx eval_poly_logdepth(const CC& cc, const Ctx& x,
+                       const std::vector<double>& coeffs) {
+    size_t n = coeffs.size();
+
+    if (n == 1) {
+        return cc->EvalMult(x, 0.0) + coeffs[0];
+    }
+    if (n == 2) {
+        Ctx res = cc->EvalMult(x, coeffs[1]);
+        eval_rescale(cc, res);
+        cc->EvalAddInPlace(res, coeffs[0]);
+        return res;
+    }
+
+    std::vector<double> even, odd;
+    even.reserve((n + 1) / 2);
+    odd.reserve(n / 2);
+
+    for (size_t i = 0; i < n; ++i) {
+        if (i % 2 == 0) even.push_back(coeffs[i]);
+        else odd.push_back(coeffs[i]);
+    }
+
+    Ctx x2 = cc->EvalSquare(x);
+    eval_rescale(cc, x2);
+
+    Ctx Pe = eval_poly_logdepth(cc, x2, even);
+    Ctx Po = eval_poly_logdepth(cc, x2, odd);
+
+    match_level(cc, x, Po);
+    Ctx xPo = cc->EvalMult(x, Po);
+    eval_rescale(cc, xPo);
+
+    match_level(cc, Pe, xPo);
+    Ctx result = cc->EvalAdd(Pe, xPo);
+
+    return result;
+}
+
 /// @brief Computes a weighted sum of ciphertexts, where the weights are given as plaintexts.
 /// @param cc, the crypto context
 /// @param cts, the vector of ciphertexts to be summed 

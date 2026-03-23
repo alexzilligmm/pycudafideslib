@@ -42,6 +42,9 @@ Ctx eval_chebyshev_f(const CC& cc, const Ctx& x,
 
 Ctx eval_polynomial(const CC& cc, const Ctx& x, const std::vector<double>& coeffs);
 
+Ctx eval_poly_logdepth(const CC& cc, const Ctx& x,
+                       const std::vector<double>& coeffs);
+
 Ctx eval_linear_wsum(const CC& cc,
                      std::vector<Ctx>& cts,
                      const std::vector<double>& weights);

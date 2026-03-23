@@ -26,6 +26,12 @@ TEST_F(OpsTest, ChebyshevCoefficients) {
     auto chebyshev_res = eval_chebyshev(cc, ct, chebyshev_coeff, /*a*/-5, /*b*/5);
     std::cout << "level of chebyshev_res: " << level_of(chebyshev_res) << std::endl;
 
+    auto log_depth_res = eval_poly_logdepth(cc, ct, F4_coeffs);
+    std::cout << "level of log_depth_res: " << level_of(log_depth_res) << std::endl;
+
+    auto dec_log_depth = decrypt(cc, log_depth_res, ctx->sk());
+    double log_depth_homomorphic_res = dec_log_depth[0];
+
     auto dec_chebyshev = decrypt(cc, chebyshev_res, ctx->sk());
     double chebyshev_homomorphic_res = dec_chebyshev[0];
 
@@ -41,8 +47,10 @@ TEST_F(OpsTest, ChebyshevCoefficients) {
     std::cout << "Expected (Plaintext): " << expected_res << std::endl;
     std::cout << "Actual (Homomorphic): " << homomorphic_res << std::endl;
     std::cout << "Chebyshev (Homomorphic): " << chebyshev_homomorphic_res << std::endl;
+    std::cout << "Log-Depth (Homomorphic): " << log_depth_homomorphic_res << std::endl;
     std::cout << "Absolute Error:       " << std::abs(homomorphic_res - expected_res) << std::endl;
     std::cout << "Chebyshev Absolute Error: " << std::abs(chebyshev_homomorphic_res - expected_res) << std::endl;
+    std::cout << "Log-Depth Absolute Error: " << std::abs(log_depth_homomorphic_res - expected_res) << std::endl;
 
     EXPECT_NEAR(homomorphic_res, expected_res, 1e-5);
 
