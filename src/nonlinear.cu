@@ -31,12 +31,11 @@ static void dbg_val(const char* label, const CC& cc,
     std::cout << "]\n";
 }
 
-
 /// @brief SiLU in the Cachemir's implementation
 Ctx silu(LlamaInference& llama, const Ctx& x_in) {
     const CC& cc = llama.cc();
     auto fn = [](double x) { return x / (std::exp(-x) + 1.0); };
-    return eval_chebyshev(cc, x_in, fn, -20.0, 20.0, 127);
+    return eval_chebyshev_f(cc, x_in, fn, -20.0, 20.0, 127);
 }
 
 Ctx silu_expDim(LlamaInference& llama, const Ctx& x_in) {

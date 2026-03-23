@@ -199,7 +199,7 @@ std::vector<double> chebyshev_coeffs(
     return coeffs;
 }
 
-/// @brief Evaluates a Chebyshev series at a given point.
+/// @brief Evaluates a Chebyshev series of a function at a given point.
 /// @param cc, the crypto context 
 /// @param x, the input ciphertext at which to evaluate the series
 /// @param f, the function to approximate
@@ -210,7 +210,7 @@ std::vector<double> chebyshev_coeffs(
 /// @todo: this function recomputes the Chebyshev coefficients every time it is called.
 ///        We need a variant where the chebyshev coefficients are precomputed and
 ///        passed as input.
-Ctx eval_chebyshev(const CC& cc, const Ctx& x,
+Ctx eval_chebyshev_f(const CC& cc, const Ctx& x,
                    std::function<double(double)> f,
                    double a, double b, int degree) {
     auto coeffs = chebyshev_coeffs(f, a, b, degree);
@@ -229,6 +229,93 @@ Ctx eval_chebyshev(const CC& cc, const Ctx& x,
     }
 
     return cc->EvalChebyshevSeries(u, coeffs, -1.0, 1.0);
+}
+
+
+/// @brief Converts coefficients from standard monomial basis to Chebyshev basis.
+/// @param poly_coeffs Coefficients in standard basis [a0, a1, a2, ..., an]
+/// @return Coefficients in Chebyshev basis [c0, c1, c2, ..., cn]
+std::vector<double> standard_to_chebyshev(const std::vector<double>& poly_coeffs) {
+    size_t n = poly_coeffs.size();
+    if (n == 0) return {};
+    std::vector<double> cheb_coeffs(n, 0.0);
+
+    // x * T_n = 0.5 * (T_{n+1} + T_{n-1})
+    for (int i = n - 1; i >= 0; --i) {
+        std::vector<double> next_cheb(n, 0.0);
+        
+        for (size_t j = 0; j < n; ++j) {
+            if (cheb_coeffs[j] == 0) continue;
+
+            if (j == 0) {
+                // x * T_0 = T_1
+                next_cheb[1] += cheb_coeffs[j];
+            } else {
+                // x * T_j = 0.5 * T_{j+1} + 0.5 * T_{j-1}
+                if (j + 1 < n) 
+                    next_cheb[j + 1] += 0.5 * cheb_coeffs[j];
+                
+                next_cheb[j - 1] += 0.5 * cheb_coeffs[j];
+            }
+        }
+        
+        next_cheb[0] += poly_coeffs[i];
+        cheb_coeffs = next_cheb;
+    }
+
+    return cheb_coeffs;
+}
+
+/// @brief: Evaluates the Chebyshev series of a list of precomputed coefficients at a given point.
+/// @param cc, the crypto context
+/// @param x, the input ciphertext at which to evaluate the series
+/// @param coeffs, the precomputed Chebyshev coefficients for the function to approximate
+/// @param a, the lower bound of the interval
+/// @param b, the upper bound of the interval
+/// @return the ciphertext resulting from evaluating the Chebyshev series at x
+Ctx eval_chebyshev(const CC& cc, const Ctx& x, std::vector<double> coeffs, double a, double b) {
+    double alpha = 2.0 / (b - a);
+    double beta  = -(a + b) / (b - a);
+
+    Ctx u;
+    if (a == -1.0 && b == 1.0) {
+        u = x;
+    } else {
+        u = cc->EvalMult(x, alpha);  
+        cc->RescaleInPlace(u);         
+        if (std::abs(beta) > 1e-15)
+            cc->EvalAddInPlace(u, beta);
+    }
+
+    return cc->EvalChebyshevSeries(u, coeffs, -1.0, 1.0);
+}
+
+/// @brief Evaluates a polynomial at a given point using Horner's method.
+/// @param cc, the crypto context
+/// @param x, the input ciphertext at which to evaluate the polynomial
+/// @param coeffs, the coefficients of the polynomial in standard basis [a0, a1, a2, ..., an] representing a0 + a1*x + a2*x^2 + ... + an*x^n
+/// @return the ciphertext resulting from evaluating the polynomial at x
+/// @brief Evaluates a polynomial at a given point using Horner's method.
+/// @param cc, the crypto context
+/// @param x, the input ciphertext at which to evaluate the polynomial
+/// @param coeffs, the coefficients of the polynomial in standard basis [a0, a1, a2, ..., an] representing a0 + a1*x + a2*x^2 + ... + an*x^n
+/// @return the ciphertext resulting from evaluating the polynomial at x
+Ctx eval_polynomial(const CC& cc, const Ctx& x, const std::vector<double>& coeffs) {
+    size_t n = coeffs.size();
+    Ctx result = cc->EvalMult(x, coeffs[n - 1]);
+    eval_rescale(cc, result);
+    cc->EvalAddInPlace(result, coeffs[n - 2]);
+
+    for (int i = static_cast<int>(n) - 3; i >= 0; --i) {
+        Ctx x_cloned = x; 
+        match_level(cc, x_cloned, result);
+
+        result = cc->EvalMult(result, x_cloned);
+        eval_rescale(cc, result);
+        cc->EvalAddInPlace(result, coeffs[i]);
+    }
+
+    return result;
 }
 
 /// @brief Computes a weighted sum of ciphertexts, where the weights are given as plaintexts.

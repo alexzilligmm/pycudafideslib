@@ -31,9 +31,17 @@ Ctx goldschmidt_inv(const CC& cc, int slots,
 std::vector<double> chebyshev_coeffs(std::function<double(double)> f,
                                       double a, double b, int degree);
 
-Ctx eval_chebyshev(const CC& cc, const Ctx& x,
+std::vector<double> standard_to_chebyshev(const std::vector<double>& poly_coeffs);
+
+Ctx eval_chebyshev(const CC& cc, const Ctx& x, std::vector<double> coeffs, double a, double b);
+
+Ctx eval_chebyshev_f(const CC& cc, const Ctx& x,
                    std::function<double(double)> f,
                    double a, double b, int degree);
+
+std::vector<double> standard_to_chebyshev(const std::vector<double>& poly_coeffs);
+
+Ctx eval_polynomial(const CC& cc, const Ctx& x, const std::vector<double>& coeffs);
 
 Ctx eval_linear_wsum(const CC& cc,
                      std::vector<Ctx>& cts,
