@@ -8,7 +8,7 @@ static void eval_rescale(const CC& cc, Ctx& x) {
 
 /// @brief Computes the inverse square root of a value using the Newton-Raphson iteration method.
 /// @param cc, the crypto context
-/// @param slots, the number of slots in the ciphertext
+/// @param slots, the number of slots in the ciphertext TODO: this parameter is useless???
 /// @param x, the input ciphertext for which we want to compute 1/sqrt(x)
 /// @param ans_init, the initial guess for 1/sqrt(x)
 /// @param iters, the number of iterations to perform
@@ -48,7 +48,7 @@ Ctx inv_sqrt_newton(const CC& cc, int slots,
 
 /// @brief Computes the inverse square root of a value using the Goldschmidt iteration method.
 /// @param cc, the crypto context
-/// @param slots, the number of slots in the ciphertext
+/// @param slots, the number of slots in the ciphertext TODO: this parameter is useless??
 /// @param x, the input ciphertext for which we want to compute 1/sqrt(x)
 /// @param ans_init, the initial guess for 1/sqrt(x)
 /// @param iters, the number of iterations to perform
@@ -92,7 +92,7 @@ Ctx goldschmidt_inv_sqrt(const CC& cc, int slots,
 
 /// @brief Computes the inverse of a value using the Newton iteration method.
 /// @param cc, the crypto context
-/// @param one_ct, a ciphertext encrypting the value 1, used for the iteration
+/// @param one_ct, a ciphertext encrypting the value 1, used for the iteration TODO: this too is useless wtf
 /// @param res, the initial guess for the inverse, which will be updated in-place
 /// @param dnm, the input ciphertext for which we want to compute the inverse, updated in-place
 /// @param iters, the number of iterations to perform
@@ -116,7 +116,7 @@ Ctx newton_inverse(const CC& cc, Ctx one_ct, Ctx res, Ctx dnm, int iters) {
 
 /// @brief Computes the inverse of a value using the Goldschmidt iteration method.
 /// @param cc, the crypto context
-/// @param slots, the number of slots in the ciphertext
+/// @param slots, the number of slots in the ciphertext TODO: this parameter is useless too???
 /// @param a, the ciphertext a, for which we want to compute 1/a
 /// @param x0_init, the initial guess for 1/a
 /// @param iters, the number of iterations to perform

@@ -20,3 +20,4 @@ endfunction()
 enable_testing()
 
 add_cachemir_test(test_basics)
+add_cachemir_test(test_primitives)

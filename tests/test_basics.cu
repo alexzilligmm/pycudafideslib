@@ -1,36 +1,8 @@
 #include <gtest/gtest.h>
-#include "fideslib_wrapper.h"
+#include "test_basics.h"
 #include <cmath>
 #include <numeric>
 
-class OpsTest : public ::testing::Test {
-protected:
-    // logN=12 (N=4096) is stable and fast for these depth tests
-    static constexpr uint32_t LOG_N = 12; 
-
-    std::shared_ptr<CKKSContext> ctx;
-
-    void SetUp() override {
-        // Use the parameters that worked in the successful BootstrapTest log:
-        // logN=12, depth=16 (+9 overhead = 25), scale=59
-        ctx = make_ckks_context(
-            /*logN=*/              LOG_N,
-            /*depth=*/             16,    
-            /*scale_bits=*/        40,    // Note: Wrapper overrides to 59 for bootstrap
-            /*bootstrap_slots=*/   0,     
-            /*enable_bootstrap=*/  true,
-            /*btp_scale_bits=*/    59,    // Matching successful log
-            /*first_mod_bits=*/    60,    
-            /*level_budget_in=*/   {3, 3}, // Standard budget
-            /*batch_size=*/        0,
-            /*h_weight=*/          192,
-            /*num_large_digits=*/  3,
-            /*btp_depth_overhead=*/ 9      // Total depth = 25
-        );
-        std::cout << "--- CONTEXT INITIALIZED ---" << "\n"
-                  << "N=" << (1 << LOG_N) << "\n";
-    }
-};
 
 TEST_F(OpsTest, CCparams) {
     const CC& cc = ctx->cc;
