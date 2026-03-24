@@ -181,3 +181,56 @@ Ctx exp_squaring(const CC& cc, Ctx x, int iters) {
     }
     return x;
 }
+
+
+/// @brief compute encrypted average of a vector of ciphertexts
+Ctx compute_average(Inference& inf, const Ctx& x_in) {
+
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
+    const int hD = inf.size.hidDim;
+
+    Ctx mean = x_in->Clone();
+    for (int i = S / hD; i < S; i *= 2) {
+        Ctx tmp = cc->EvalRotate(mean, i);
+        cc->EvalAddInPlace(mean, tmp);
+    }
+
+    return mean;
+}
+
+/// @brief Computes the encrypted variance across hidDim slots: (1/N)*sum((x-mean)^2)
+/// @param inf, the inference context (provides cc, slots, hidDim)
+/// @param x_in, the input ciphertext
+/// @param mean, a precomputed mean ciphertext (as returned by compute_average)
+/// @return a ciphertext holding the variance replicated across all slots
+Ctx compute_variance(Inference& inf, const Ctx& x_in, Ctx mean) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
+    const int hD = inf.size.hidDim;
+
+    Ctx xd = cc->EvalMult(x_in, (double)hD);
+    eval_rescale(cc, xd);
+
+    drop_levels(cc, mean, 1);
+    Ctx varc = cc->EvalSub(xd, mean); // N*(x - mean)
+
+    cc->EvalSquareInPlace(varc);
+    eval_rescale(cc, varc);
+
+    for (int i = S / hD; i < S; i *= 2) {
+        Ctx tmp = cc->EvalRotate(varc, i);
+        cc->EvalAddInPlace(varc, tmp);
+    }
+
+    double inv_d3 = 1.0 / std::pow((double)hD, 3.0); // 1/N^3 * sum(N^2*(x-mean)^2) = variance
+    cc->EvalMultInPlace(varc, inv_d3);
+    eval_rescale(cc, varc);
+
+    return varc;
+}
+
+/// @brief Computes the encrypted variance, deriving the mean internally.
+Ctx compute_variance(Inference& inf, const Ctx& x_in) {
+    return compute_variance(inf, x_in, compute_average(inf, x_in));
+}

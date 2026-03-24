@@ -1,4 +1,5 @@
 #include "llama.h"
+#include "nonlinear.h"
 #include "ckks_primitives.h"
 #include <cmath>
 #include <vector>
@@ -94,9 +95,7 @@ Ctx sign(Inference& inf, const Ctx& x_in) {
 }
 
 /// @brief Homomorphic less-than: returns ~1 if x < value, ~0 otherwise.
-///
-/// @param rescale_factor  Scales (x - value) into [-1, 1] before sign.
-///                        Use 1.0 when the input is already in that range.
+/// @param rescale_factor  Scales (x - value) into [-1, 1] before sign. Use 1.0 when the input is already in that range.
 Ctx lt_function(Inference& inf, const Ctx& x_in, double value,
                 double rescale_factor) {
     const CC& cc = inf.cc();
@@ -125,7 +124,8 @@ Ctx lt_function(Inference& inf, const Ctx& x_in, double value,
 ///   -1.95 <= x < 3   ->  poly_f1(x)   (degree-6 minimax)
 ///   x >= 3           ->  x
 /// @param rescale_factor  Scalar applied to (x - threshold) before sign, so that the shifted input lies in [-1, 1] as required
-Ctx gelu(Inference& inf, const Ctx& x_in, double rescale_factor) {
+Ctx gelu(Inference& inf, const Ctx& x_in, const GeluConfig& cfg) {
+    const double rescale_factor = cfg.rescale_factor;
     const CC& cc = inf.cc();
     const int S  = inf.slots;
 
@@ -188,6 +188,11 @@ Ctx gelu(Inference& inf, const Ctx& x_in, double rescale_factor) {
     cc->EvalAddInPlace(term0, term2);
 
     return term0;
+}
+
+/// @brief LayerNorm approx as in Encrypted LLM
+Ctx norm(Inference& inf, const Ctx& x_in) {
+    
 }
 
 /// @brief Softmax in the Cachemir's implementation
@@ -273,96 +278,6 @@ Ctx softmax(Inference& inf, const Ctx& x_in,
     cc->RescaleInPlace(y);
 
     cc->EvalMultInPlace(y, v);   // algebraically: exp * (1/(v*sum)) * v = exp/sum
-    cc->RescaleInPlace(y);
-
-    return y;
-}
-
-/// @brief  Normalization: (x - mean) / sqrt(var), where mean and var are computed across the CKKS slots. But at the Cachemir's way.
-/// @param inf 
-/// @param x_in 
-/// @param target_level_after_btp 
-/// @return 
-Ctx norm(Inference& inf, const Ctx& x_in,
-          int target_level_after_btp) {
-    const CC& cc = inf.cc();
-    const int S  = inf.slots;
-    const int hD = inf.size.hidDim;
-    const auto& sk = inf.fhe->sk();
-
-    Ctx mean = x_in->Clone();
-    for (int i = S / hD; i < S; i *= 2) {
-        Ctx tmp = cc->EvalRotate(mean, i);
-        cc->EvalAddInPlace(mean, tmp);
-    }
-
-    Ctx xd = cc->EvalMult(x_in, (double)hD);
-    cc->RescaleInPlace(xd);
-
-    drop_levels(cc, mean, 1);
-    Ctx varc = cc->EvalSub(xd, mean); // so doing N*(X - mean)
-
-    cc->EvalSquareInPlace(varc); // it is variance so makes sense
-    cc->RescaleInPlace(varc);
-
-    for (int i = S / hD; i < S; i *= 2) {
-        Ctx tmp = cc->EvalRotate(varc, i);
-        cc->EvalAddInPlace(varc, tmp);
-    }
-
-    double inv_d3 = 1.0 / std::pow((double)hD, 3.0);
-    cc->EvalMultInPlace(varc, inv_d3); // 1/N^3 * sum(N^2*(X - mean)^2) = 1/N * sum((X - mean)^2) = variance
-    cc->RescaleInPlace(varc);
-
-    // --- Newton-Raphson for inverse square root ---
-    // TODO: Again a function without calling the primitive? Why?
-    // TODO: why is this not using the goldschmidt_inv_sqrt primitive if first place?
-    //      I would expect that both inv_sqrts are pretty much equal, both are second order methods...
-
-    // Do we know the range of varc? Otherwise this
-    // initialization of the guess could be fairly sketchy.
-    Ctx ans = cc->EvalMult(varc, -42.1);
-    cc->RescaleInPlace(ans);
-    cc->EvalAddInPlace(ans, 7.37);
-
-    Ctx halfX = cc->EvalMult(varc, -0.5);
-    cc->RescaleInPlace(halfX);
-
-    for (int i = 0; i < 4; ++i) {
-        Ctx ansSq = cc->EvalSquare(ans);
-        cc->RescaleInPlace(ansSq);
-
-        drop_levels(cc, ans, 1);
-
-        Ctx ansCu = cc->EvalMult(ansSq, ans);
-        cc->RescaleInPlace(ansCu);
-
-        uint32_t halfX_target = level_of(ansCu);
-
-        Ctx term1 = cc->EvalMult(ansCu, halfX);
-        cc->RescaleInPlace(term1);
-
-        Ctx term2 = cc->EvalMult(ans, 1.5);
-        cc->RescaleInPlace(term2);
-
-        match_level(cc, term2, term1);
-
-        ans = cc->EvalAdd(term1, term2);
-    }
-    // --- End Newton-Raphson ---
-
-    ans = bootstrap_to(inf, ans, (uint32_t)target_level_after_btp);
-
-    Ctx varc_r = varc;
-    reduce_to_level(cc, varc_r, level_of(ans), S);
-
-    // And now we are calling the primitive... eh?
-    ans = goldschmidt_inv_sqrt(cc, varc_r, ans, 2);
-
-    Ctx x_copy = x_in;
-    reduce_to_level(cc, x_copy, level_of(ans), S);
-
-    Ctx y = cc->EvalMult(x_copy, ans);
     cc->RescaleInPlace(y);
 
     return y;
