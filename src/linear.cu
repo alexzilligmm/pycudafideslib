@@ -5,36 +5,36 @@
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
-void rotate_add_inplace(LlamaInference& llama, Ctx& x, int step) {
+void rotate_add_inplace(Inference& llama, Ctx& x, int step) {
     const CC& cc = llama.cc();
     Ctx tmp = cc->EvalRotate(x, step);
     match_level(cc, x, tmp);
     cc->EvalAddInPlace(x, tmp);
 }
 
-Ctx linear(LlamaInference& llama, const Ctx& x,
+Ctx linear(Inference& llama, const Ctx& x,
            const std::string& wname, int expand) {
     const CC& cc     = llama.cc();
     auto& weight = llama.w.at(wname);
     const int  hidDim  = llama.size.hidDim;
-    const int  expDim  = llama.size.expDim;
+    const int  ffDim  = llama.size.ffDim;
     const int  S       = llama.slots;
 
-    int preProc  = (expand >= 0) ? S / hidDim : S / expDim;
-    int postProc = (expand <= 0) ? S / hidDim : S / expDim;
+    int preProc  = (expand >= 0) ? S / hidDim : S / ffDim;
+    int postProc = (expand <= 0) ? S / hidDim : S / ffDim;
     int inRot, outRot;
     if (expand == 0) {
         inRot  = (int)std::sqrt((double)(hidDim * hidDim) / (2 * S));
         outRot = hidDim * hidDim / (S * inRot);
     } else {
-        inRot  = (int)std::sqrt((double)(hidDim * expDim) / (2 * S));
-        outRot = hidDim * expDim / (S * inRot);
+        inRot  = (int)std::sqrt((double)(hidDim * ffDim) / (2 * S));
+        outRot = hidDim * ffDim / (S * inRot);
     }
 
     const int intRot = S / hidDim;
 
-    const int preStep  = (expand >= 0) ? hidDim : expDim;
-    const int postStep = (expand <= 0) ? hidDim : expDim;
+    const int preStep  = (expand >= 0) ? hidDim : ffDim;
+    const int postStep = (expand <= 0) ? hidDim : ffDim;
 
     const int n_weights = (int)weight.size();
 
@@ -90,12 +90,12 @@ Ctx linear(LlamaInference& llama, const Ctx& x,
 }
 
 // ── QKV ──────────────────────────────────────────────────────────────────
-Ctx qkv_q(LlamaInference& llama, const Ctx& x) { return linear(llama, x, "q",    0); }
-Ctx qkv_k(LlamaInference& llama, const Ctx& x) { return linear(llama, x, "k",    0); }
-Ctx qkv_v(LlamaInference& llama, const Ctx& x) { return linear(llama, x, "v",    0); }
+Ctx qkv_q(Inference& llama, const Ctx& x) { return linear(llama, x, "q",    0); }
+Ctx qkv_k(Inference& llama, const Ctx& x) { return linear(llama, x, "k",    0); }
+Ctx qkv_v(Inference& llama, const Ctx& x) { return linear(llama, x, "v",    0); }
 
 
-static Ctx rope_single(LlamaInference& llama, const Ctx& x) {
+static Ctx rope_single(Inference& llama, const Ctx& x) {
     const CC& cc  = llama.cc();
     const int intRot = llama.slots / llama.size.hidDim;
     auto& w = llama.w.at("RoPE");  // [cos, sin+, sin-]
@@ -115,7 +115,7 @@ static Ctx rope_single(LlamaInference& llama, const Ctx& x) {
     return y;
 }
 
-std::tuple<Ctx, Ctx> rope(LlamaInference& llama,
+std::tuple<Ctx, Ctx> rope(Inference& llama,
                            const Ctx& q, const Ctx& k) {
     Ctx yq, yk;
     if (llama.parallel) {
@@ -142,7 +142,7 @@ std::tuple<Ctx, Ctx> rope(LlamaInference& llama,
 //   V-cache step = intIdx + S * nH * midIdx / hD
 //                                       (Go: eval.Rotate(v, rot_idx, v))
 // Currently left at the placeholder until sequence-position tracking is added.
-void cache_kv(LlamaInference& llama, const Ctx& k, const Ctx& v) {
+void cache_kv(Inference& llama, const Ctx& k, const Ctx& v) {
     const CC& cc    = llama.cc();
     const int S     = llama.slots;
     const int hD    = llama.size.hidDim;
@@ -194,7 +194,7 @@ void cache_kv(LlamaInference& llama, const Ctx& k, const Ctx& v) {
 //       offset rotation for block i = numSlots - space * i
 //       where space = numSlots^2 / (seqLen * hidDim)
 // These may not be in the default key set; add to fideslib_wrapper.h if needed.
-Ctx qk_transpose(LlamaInference& llama, const Ctx& q) {
+Ctx qk_transpose(Inference& llama, const Ctx& q) {
     const CC&   cc     = llama.cc();
     const auto& kCache = llama.cache.at("k");
     Ptx  kmask  = llama.mask.at("k");
@@ -245,7 +245,7 @@ Ctx qk_transpose(LlamaInference& llama, const Ctx& q) {
 //   broadcast step = S / (nH * seqLen)  (Go: i / len(vCache))
 //   inner step     = space              (Go: i * space)
 //   outer step     = i * space * inRot  (Go: i * space * inRot)
-Ctx attn_v(LlamaInference& llama, const Ctx& s) {
+Ctx attn_v(Inference& llama, const Ctx& s) {
     const CC&   cc     = llama.cc();
     const auto& vCache = llama.cache.at("v");
     Ptx  vmask  = llama.mask.at("v");
@@ -305,9 +305,9 @@ Ctx attn_v(LlamaInference& llama, const Ctx& s) {
 }
 
 // ── Out / UpGate / Down ───────────────────────────────────────────────────
-Ctx out_proj(LlamaInference& llama, const Ctx& x) { return linear(llama, x, "out",  0); }
+Ctx out_proj(Inference& llama, const Ctx& x) { return linear(llama, x, "out",  0); }
 
-std::pair<Ctx, Ctx> up_gate(LlamaInference& llama, const Ctx& x) {
+std::pair<Ctx, Ctx> up_gate(Inference& llama, const Ctx& x) {
     Ctx up_ct, gate_ct;
     if (llama.parallel) {
         #pragma omp parallel sections
@@ -324,4 +324,4 @@ std::pair<Ctx, Ctx> up_gate(LlamaInference& llama, const Ctx& x) {
     return {up_ct, gate_ct};
 }
 
-Ctx down_proj(LlamaInference& llama, const Ctx& x) { return linear(llama, x, "down", -1); }
+Ctx down_proj(Inference& llama, const Ctx& x) { return linear(llama, x, "down", -1); }

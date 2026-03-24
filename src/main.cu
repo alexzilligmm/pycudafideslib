@@ -2,8 +2,8 @@
 //
 // Usage (same flags):
 //   ./cuda_cachemir -test Ops     -logN 12
-//   ./cuda_cachemir -test Decoder -logN 12 -hidDim 256 -expDim 1024
-//   ./cuda_cachemir -test Model   -logN 16 -hidDim 4096 -expDim 16384 -seqLen 512
+//   ./cuda_cachemir -test Decoder -logN 12 -hidDim 256 -ffDim 1024
+//   ./cuda_cachemir -test Model   -logN 16 -hidDim 4096 -ffDim 16384 -seqLen 512
 
 #include "llama.h"
 #include <cmath>
@@ -11,11 +11,9 @@
 #include <string>
 #include <stdexcept>
 
-Ctx bootstrap_to(LlamaInference&, const Ctx&, uint32_t);
-
 struct Flags {
     int logN=12; std::string test="Decoder"; int level=5; int btpLevel=15;
-    int hidDim=256; int expDim=1024; int seqLen=512; int numHeads=32;
+    int hidDim=256; int ffDim=1024; int seqLen=512; int numHeads=32;
     bool parallel=true;
 };
 
@@ -29,7 +27,7 @@ static Flags parse(int argc, char** argv) {
         else if (s=="-level"||s=="--level")        f.level    = std::stoi(nxt());
         else if (s=="-btpLevel"||s=="--btpLevel")  f.btpLevel = std::stoi(nxt());
         else if (s=="-hidDim"||s=="--hidDim")      f.hidDim   = std::stoi(nxt());
-        else if (s=="-expDim"||s=="--expDim")      f.expDim   = std::stoi(nxt());
+        else if (s=="-ffDim"||s=="--ffDim"||s=="-expDim"||s=="--expDim") f.ffDim = std::stoi(nxt());
         else if (s=="-seqLen"||s=="--seqLen")      f.seqLen   = std::stoi(nxt());
         else if (s=="-numHeads"||s=="--numHeads")  f.numHeads = std::stoi(nxt());
         else if (s=="-parallel"||s=="--parallel")  f.parallel = (nxt()!="false");
@@ -67,7 +65,7 @@ static std::vector<double> ref_norm(const std::vector<double>& x, int hD) {
 int main(int argc, char** argv) {
     Flags f = parse(argc, argv);
 
-    LlamaInference llama = make_llama(f.logN, f.hidDim, f.expDim,
+    Inference llama = make_llama(f.logN, f.hidDim, f.ffDim,
                                        f.seqLen, f.numHeads, f.parallel);
     std::cout << "Initialization finished! slots=" << llama.slots << "\n";
 

@@ -1,98 +1,43 @@
 #pragma once
 
-#include "fideslib_wrapper.h"
+#include "inference.h"
 
-#include <unordered_map>
-#include <vector>
-#include <string>
-#include <chrono>
-#include <iostream>
-#include <functional>
+Inference make_llama(int logN, int hidDim, int ffDim,
+                     int seqLen, int numHeads, bool parallel);
 
-struct LlamaSize {
-    int hidDim   = 4096;
-    int expDim   = 16384;
-    int numHeads = 32;
-    int seqLen   = 512;
-};
+void prepare_weights(Inference& inf, const std::vector<std::string>& names);
+void prepare_cache  (Inference& inf, const std::vector<std::string>& names);
 
-struct SiluFunc {
-    std::vector<double> cheby_coeffs;
-    bool ready = false;
-};
+Ctx linear(Inference& inf, const Ctx& x, const std::string& wname, int expand);
 
-struct LlamaInference {
-    std::shared_ptr<CKKSContext> fhe;
+Ctx qkv_q(Inference& inf, const Ctx& x);
+Ctx qkv_k(Inference& inf, const Ctx& x);
+Ctx qkv_v(Inference& inf, const Ctx& x);
 
-    LlamaSize size;
-    int   logN        = 12;
-    int   slots       = 0;
-    int   total_depth = 25;
+std::tuple<Ctx, Ctx> rope(Inference& inf, const Ctx& q, const Ctx& k);
 
-    bool parallel = true;
+void cache_kv(Inference& inf, const Ctx& k, const Ctx& v);
 
-    std::unordered_map<std::string, std::vector<Ptx>> w;
+Ctx qk_transpose(Inference& inf, const Ctx& q);
+Ctx attn_v       (Inference& inf, const Ctx& s);
+Ctx out_proj     (Inference& inf, const Ctx& x);
 
-    std::unordered_map<std::string, std::vector<Ctx>> cache;
+std::pair<Ctx, Ctx> up_gate  (Inference& inf, const Ctx& x);
+Ctx                 down_proj(Inference& inf, const Ctx& x);
 
-    std::unordered_map<std::string, Ptx> mask;
-    std::vector<Ptx>                     cache_mask;
+// Nonlinear ops (shared across models via nonlinear.cu)
+Ctx silu     (Inference& inf, const Ctx& x);
+Ctx silu_ffDim(Inference& inf, const Ctx& x);   // SiLU masked to ffDim slots
+Ctx softmax  (Inference& inf, const Ctx& x, int target_level_after_btp, int temp);
+Ctx norm     (Inference& inf, const Ctx& x, int target_level_after_btp);
+Ctx sign     (Inference& inf, const Ctx& x);                    // sign(x) via F4∘F4∘G4∘G4
+Ctx lt_function(Inference& inf, const Ctx& x, double value,
+                double rescale_factor = 1.0);                    // ~1 if x < value
+Ctx gelu     (Inference& inf, const Ctx& x, double rescale_factor); // piecewise on 4 intervals
+Ctx argmax   (Inference& inf, const Ctx& x);
 
-    SiluFunc silu_func;
+// Full Llama decoder layer and stacked model
+Ctx decoder(Inference& inf, const Ctx& x);
+Ctx model  (Inference& inf, const Ctx& x);
 
-    CC& cc() { return fhe->cc; }
-    const CC& cc() const { return fhe->cc; }
-};
-
-LlamaInference make_llama(int logN, int hidDim, int expDim,
-                           int seqLen, int numHeads, bool parallel);
-
-void prepare_weights(LlamaInference& llama,
-                     const std::vector<std::string>& names);
-
-void prepare_cache(LlamaInference& llama,
-                   const std::vector<std::string>& names);
-
-Ctx linear(LlamaInference& llama, const Ctx& x,
-           const std::string& wname, int expand);
-
-Ctx qkv_q(LlamaInference& llama, const Ctx& x);
-Ctx qkv_k(LlamaInference& llama, const Ctx& x);
-Ctx qkv_v(LlamaInference& llama, const Ctx& x);
-
-std::tuple<Ctx, Ctx> rope(LlamaInference& llama,
-                           const Ctx& q, const Ctx& k);
-
-void cache_kv(LlamaInference& llama, const Ctx& k, const Ctx& v);
-
-Ctx qk_transpose(LlamaInference& llama, const Ctx& q);
-
-Ctx attn_v(LlamaInference& llama, const Ctx& s);
-
-Ctx out_proj(LlamaInference& llama, const Ctx& x);
-
-std::pair<Ctx, Ctx> up_gate(LlamaInference& llama, const Ctx& x);
-
-Ctx down_proj(LlamaInference& llama, const Ctx& x);
-
-Ctx silu      (LlamaInference& llama, const Ctx& x);
-Ctx silu_expDim(LlamaInference& llama, const Ctx& x);
-Ctx softmax(LlamaInference& llama, const Ctx& x,
-             int target_level_after_btp, int temp);
-Ctx norm   (LlamaInference& llama, const Ctx& x,
-             int target_level_after_btp);
-Ctx argmax (LlamaInference& llama, const Ctx& x);
-
-Ctx decoder(LlamaInference& llama, const Ctx& x);
-Ctx model  (LlamaInference& llama, const Ctx& x);
-
-void rotate_add_inplace(LlamaInference& llama, Ctx& x, int step);
-
-struct Timer {
-    std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
-    void reset() { t0 = std::chrono::steady_clock::now(); }
-    double elapsed_s() const {
-        using namespace std::chrono;
-        return duration<double>(steady_clock::now() - t0).count();
-    }
-};
+void rotate_add_inplace(Inference& inf, Ctx& x, int step);
