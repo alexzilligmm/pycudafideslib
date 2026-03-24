@@ -50,6 +50,8 @@ Ctx eval_polynomial_computational_ps(const CC& cc,
                            const PublicKey<DCRTPoly>& pk,
                            size_t slots);
 
+Ctx eval_polynomial_deg4(const CC& cc, const Ctx& x, const std::vector<double>& coeffs);
+
 Ctx eval_linear_wsum(const CC& cc,
                      std::vector<Ctx>& cts,
                      const std::vector<double>& weights);

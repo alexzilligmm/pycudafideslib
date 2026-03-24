@@ -170,7 +170,7 @@ Ctx eval_polynomial(const CC& cc, const Ctx& x, const std::vector<double>& coeff
 }
 
 
-/// @brief Evaluates a polynomial using the Paterson-Stockmeyer tree algorithm. Achieves optimal multiplicative depth of ceil(log2(d+1)) where d is the degree.
+/// @brief Evaluates a polynomial using the Power-sum tree algorithm. Achieves optimal multiplicative depth of ceil(log2(d+1)) where d is the degree.
 /// @param cc, the crypto context
 /// @param x, the input ciphertext
 /// @param coeffs, coefficients [a0, a1, ..., an] for a0 + a1*x + ... + an*x^n
@@ -223,7 +223,7 @@ Ctx eval_polynomial_ps(const CC& cc, const Ctx& x, const std::vector<double>& co
 }
 
 
-/// @brief Evaluates a polynomial using the Paterson-Stockmeyer tree algorithm without storing intermediate powers. Achieves optimal multiplicative depth of ceil(log2(d+1)) where d is the degree.
+/// @brief Evaluates a polynomial using the Power-sum tree algorithm without storing intermediate powers. Achieves optimal multiplicative depth of ceil(log2(d+1)) where d is the degree.
 /// @param cc, the crypto context
 /// @param x, the input ciphertext
 /// @param coeffs, coefficients [a0, a1, ..., an] for a0 + a1*x + ... + an*x^n
@@ -245,10 +245,8 @@ Ctx eval_polynomial_computational_ps(const CC& cc, const Ctx& x, const std::vect
             if (i % 2 == 1) {
                 if (curr_x == nullptr) {
                     curr_x = cc->EvalMult(running_x, coeffs[p]);
-                    // eval_rescale(cc, curr_x); // maybe we don't need to rescale here?
                 } else {
                     match_level(cc, curr_x, running_x);
-                    // match_level(cc, running_x, curr_x); //curr_x should always be at a level <= running_x
                     curr_x = cc->EvalMult(curr_x, running_x);
                     eval_rescale(cc, curr_x);
                     never_rescaled = false;
@@ -260,9 +258,40 @@ Ctx eval_polynomial_computational_ps(const CC& cc, const Ctx& x, const std::vect
         if (never_rescaled) eval_rescale(cc, curr_x); // if we only multiplied with the coefficient, thus we need to rescale before adding to the result
 
         match_level(cc, result, curr_x);
-        // match_level(cc, curr_x, result); //result should always be at a level <= curr_x
         cc->EvalAddInPlace(result, curr_x);
     }
 
     return result;
+}
+
+
+/// @brief Evaluates a degree-4 polynomial using hard-coded paterson-stockmeyer.
+/// @param cc, the crypto context
+/// @param x, the input ciphertext
+/// @param coeffs, coefficients [a0, a1, ..., an] for a0 + a1*x + ... + an*x^n
+/// @param pk, the public key (used for encrypting constant-only leaves)
+/// @param slots, number of slots
+/// @return the ciphertext resulting from evaluating the polynomial at x
+Ctx eval_polynomial_deg4(const CC& cc, const Ctx& x, const std::vector<double>& coeffs) {
+    Ctx x2 = cc->EvalSquare(x);
+    Ctx result = cc->EvalSquare(x2);
+
+    cc->EvalMultInPlace(result, coeffs[4]);
+    eval_rescale(cc, result);
+
+    Ctx A = cc->EvalMult(x, coeffs[1]);
+    cc->EvalAddInPlace(A, coeffs[0]);
+
+    Ctx B = cc->EvalMult(x, coeffs[3]);
+    cc->EvalAddInPlace(B, coeffs[2]);
+    match_level(cc, B, x2);
+    B = cc->EvalMult(B, x2);
+    eval_rescale(cc, B);
+
+    match_level(cc, A, B);
+    A = cc->EvalAdd(A, B);
+
+    match_level(cc, A, result);
+
+    return cc->EvalAdd(A, result);
 }
