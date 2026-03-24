@@ -44,6 +44,12 @@ Ctx eval_polynomial_ps(const CC& cc,
                            const PublicKey<DCRTPoly>& pk,
                            size_t slots);
 
+Ctx eval_polynomial_computational_ps(const CC& cc,
+                           const Ctx& x,
+                           const std::vector<double>& coeffs,
+                           const PublicKey<DCRTPoly>& pk,
+                           size_t slots);
+
 Ctx eval_linear_wsum(const CC& cc,
                      std::vector<Ctx>& cts,
                      const std::vector<double>& weights);

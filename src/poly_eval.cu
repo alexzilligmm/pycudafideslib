@@ -180,59 +180,89 @@ Ctx eval_polynomial(const CC& cc, const Ctx& x, const std::vector<double>& coeff
 Ctx eval_polynomial_ps(const CC& cc, const Ctx& x, const std::vector<double>& coeffs, const PublicKey<DCRTPoly>& pk, size_t slots) {
     int d = static_cast<int>(coeffs.size()) - 1;
 
-    if (d == 0)
-        return encrypt_const(cc, coeffs[0], slots, pk);
+    Ctx result = encrypt_const(cc, coeffs[0], slots, pk);
 
-    std::map<int, Ctx> powers;
-    powers[1] = x;
-    for (int p = 1; (1 << p) <= d; ++p) {
-        int prev = 1 << (p - 1);
-        Ctx sq = cc->EvalMult(powers[prev], powers[prev]);
-        eval_rescale(cc, sq);
-        powers[1 << p] = sq;
+    if (d == 0)
+        return result;
+
+    int floor_log2 = std::floor(std::log2(d));
+
+    std::vector<Ctx> powers(floor_log2 + 1);
+    powers[0] = x;
+    for (int p = 1; p <= floor_log2; ++p) {
+        powers[p] = cc->EvalSquare(powers[p - 1]); // squaring triggers rescaling
     }
 
-    std::function<Ctx(int, int)> tree_eval = [&](int lo, int hi) -> Ctx {
-        int deg = hi - lo;
-
-        if (deg == 0) {
-            return encrypt_const(cc, coeffs[lo], slots, pk);
+    for (int p = 1; p < coeffs.size(); ++p) {
+        Ctx curr_x = nullptr;
+        int pow_idx = 0;
+        bool never_rescaled = true;
+        for (int i = p; i > 0; i /= 2) {
+            if (i % 2 == 1) {
+                if (curr_x == nullptr) {
+                    curr_x = cc->EvalMult(powers[pow_idx], coeffs[p]);
+                    // eval_rescale(cc, curr_x); // maybe we don't need to rescale here?
+                } else {
+                    match_level(cc, curr_x, powers[pow_idx]);
+                    // match_level(cc, powers[pow_idx], curr_x); //curr_x should always be at a level <= powers[pow_idx]
+                    curr_x = cc->EvalMult(curr_x, powers[pow_idx]);
+                    eval_rescale(cc, curr_x);
+                    never_rescaled = false;
+                }
+            }
+            pow_idx++;
         }
+        if (never_rescaled) eval_rescale(cc, curr_x); // if we only multiplied with the coefficient, thus we need to rescale before adding to the result
 
-        if (deg == 1) {
-            Ctx result = cc->EvalMult(powers.at(1), coeffs[lo + 1]);
-            eval_rescale(cc, result);
-            cc->EvalAddInPlace(result, coeffs[lo]);
-            return result;
+        match_level(cc, result, curr_x);
+        // match_level(cc, curr_x, result); //result should always be at a level <= curr_x
+        cc->EvalAddInPlace(result, curr_x);
+    }
+
+    return result;
+}
+
+
+/// @brief Evaluates a polynomial using the Paterson-Stockmeyer tree algorithm without storing intermediate powers. Achieves optimal multiplicative depth of ceil(log2(d+1)) where d is the degree.
+/// @param cc, the crypto context
+/// @param x, the input ciphertext
+/// @param coeffs, coefficients [a0, a1, ..., an] for a0 + a1*x + ... + an*x^n
+/// @param pk, the public key (used for encrypting constant-only leaves)
+/// @param slots, number of slots
+/// @return the ciphertext resulting from evaluating the polynomial at x
+Ctx eval_polynomial_computational_ps(const CC& cc, const Ctx& x, const std::vector<double>& coeffs, const PublicKey<DCRTPoly>& pk, size_t slots) {
+    Ctx result = encrypt_const(cc, coeffs[0], slots, pk);
+
+    if (coeffs.size() == 1)
+        return result;
+
+    for (int p = 1; p < coeffs.size(); ++p) {
+        Ctx curr_x = nullptr;
+        Ctx running_x = x->Clone();
+        int pow_idx = 0;
+        bool never_rescaled = true;
+        for (int i = p; i > 0; i /= 2) {
+            if (i % 2 == 1) {
+                if (curr_x == nullptr) {
+                    curr_x = cc->EvalMult(running_x, coeffs[p]);
+                    // eval_rescale(cc, curr_x); // maybe we don't need to rescale here?
+                } else {
+                    match_level(cc, curr_x, running_x);
+                    // match_level(cc, running_x, curr_x); //curr_x should always be at a level <= running_x
+                    curr_x = cc->EvalMult(curr_x, running_x);
+                    eval_rescale(cc, curr_x);
+                    never_rescaled = false;
+                }
+            }
+            running_x = cc->EvalSquare(running_x); // squaring triggers rescaling
+            pow_idx++;
         }
+        if (never_rescaled) eval_rescale(cc, curr_x); // if we only multiplied with the coefficient, thus we need to rescale before adding to the result
 
-        int m = 1;
-        while (m * 2 <= deg) m *= 2;
+        match_level(cc, result, curr_x);
+        // match_level(cc, curr_x, result); //result should always be at a level <= curr_x
+        cc->EvalAddInPlace(result, curr_x);
+    }
 
-        Ctx low_res = tree_eval(lo, lo + m - 1);
-
-        int high_deg = hi - (lo + m);
-        Ctx combined;
-
-        if (high_deg == 0) {
-            Ctx xm = powers.at(m);
-            combined = cc->EvalMult(xm, coeffs[lo + m]);
-            eval_rescale(cc, combined);
-        } else {
-            Ctx high_res = tree_eval(lo + m, hi);
-            Ctx xm = powers.at(m);
-            match_level(cc, high_res, xm);
-            match_level(cc, xm, high_res);
-            combined = cc->EvalMult(xm, high_res);
-            eval_rescale(cc, combined);
-        }
-
-        match_level(cc, low_res, combined);
-        match_level(cc, combined, low_res);
-        cc->EvalAddInPlace(combined, low_res);
-
-        return combined;
-    };
-
-    return tree_eval(0, d);
+    return result;
 }

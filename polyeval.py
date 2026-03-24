@@ -39,7 +39,6 @@ def computation_only_peterson_stockmeyer(coeffs, x):
     for i, c in enumerate(coeffs):
         curr_x = None
         running_x = x
-        running_level = 0
         curr_pow_idx = 0
         while i > 0:
             if i % 2 == 1:
@@ -48,7 +47,6 @@ def computation_only_peterson_stockmeyer(coeffs, x):
                 else:
                     curr_x = curr_x * running_x
             running_x = running_x * running_x
-            running_level += 1
             curr_pow_idx += 1
             i = i // 2
         if curr_x is None:

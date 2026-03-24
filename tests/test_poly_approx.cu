@@ -23,6 +23,10 @@ TEST_F(OpsTest, ChebyshevCoefficients) {
     std::cout << "level of binary_res: " << level_of(binary_res) << std::endl;
 
     std::cout << "level of ct: " << level_of(ct) << std::endl;
+    auto binary_computational_res = eval_polynomial_computational_ps(cc, ct, F4_coeffs, ctx->pk(), slots);
+    std::cout << "level of binary_computational_res: " << level_of(binary_computational_res) << std::endl;
+
+    std::cout << "level of ct: " << level_of(ct) << std::endl;
     auto baseline = eval_polynomial(cc, ct, F4_coeffs);
     std::cout << "level of baseline: " << level_of(baseline) << std::endl;
 
@@ -49,9 +53,11 @@ TEST_F(OpsTest, ChebyshevCoefficients) {
     std::cout << "Actual (Homomorphic): " << homomorphic_res << std::endl;
     std::cout << "Chebyshev (Homomorphic): " << chebyshev_homomorphic_res << std::endl;
     std::cout << "Binary (Homomorphic): " << decrypt(cc, binary_res, ctx->sk())[0] << std::endl;
+    std::cout << "Computational (Homomorphic): " << decrypt(cc, binary_computational_res, ctx->sk())[0] << std::endl;
     std::cout << "Absolute Error:       " << std::abs(homomorphic_res - expected_res) << std::endl;
     std::cout << "Chebyshev Absolute Error: " << std::abs(chebyshev_homomorphic_res - expected_res) << std::endl;
     std::cout << "Binary Absolute Error: " << std::abs(decrypt(cc, binary_res, ctx->sk())[0] - expected_res) << std::endl;
+    std::cout << "Computational Absolute Error: " << std::abs(decrypt(cc, binary_computational_res, ctx->sk())[0] - expected_res) << std::endl;
 
     EXPECT_NEAR(homomorphic_res, expected_res, 1e-5);
 

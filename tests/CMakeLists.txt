@@ -25,5 +25,7 @@ enable_testing()
 
 add_cachemir_test(test_basics)
 add_cachemir_test(test_primitives)
+# add_cachemir_test(test_primitives_time)
 add_cachemir_test(test_poly_approx)
+add_cachemir_test(test_poly_approx_time)
 add_cachemir_test(test_non_linear)
