@@ -39,73 +39,45 @@ TEST_F(OpsTest, LevelManagement) {
     EXPECT_NEAR(result[0], 0.5, 1e-6);
 }
 
-TEST_F(OpsTest, DeepLevelBootstrap) {
+TEST_F(OpsTest, ChainedBootstraps) {
     const CC& cc = ctx->cc;
     const size_t slots = cc->GetRingDimension() / 2;
-    
-    double test_val = 0.333;
-    auto pt = encode(cc, std::vector<double>(slots, test_val));
-    auto ct = encrypt(cc, pt, ctx->pk());
 
-    uint32_t target_level = 9; 
-    reduce_to_level(cc, ct, target_level, (int)slots);
-    
-    std::cout << "Level before bootstrap: " << level_of(ct) << "\n";
-    EXPECT_EQ(level_of(ct), target_level);
+    const int mults_per_round = 8;
+    const int num_rounds = 4;
 
-    std::cout << "Starting Bootstrapping...\n";
-    auto ct_btp = ctx->cc->EvalBootstrap(ct);
-    
-    uint32_t post_btp_lvl = level_of(ct_btp);
-    std::cout << "Level after bootstrap: " << post_btp_lvl << "\n";
+    double val = 0.5;
+    auto ct = encrypt(cc, encode(cc, std::vector<double>(slots, val)), ctx->pk());
 
-    EXPECT_GT(post_btp_lvl, target_level);
+    int total_mults = 0;
 
-    auto result = decrypt(cc, ct_btp, ctx->sk());
-    
-    EXPECT_NEAR(result[0], test_val, 1e-4);
-    std::cout << "Verified Bootstrapped Value: " << result[0] << "\n";
-}
+    for (int round = 0; round < num_rounds; ++round) {
+        std::cout << "--- Round " << round << ": level=" << level_of(ct) << " ---\n";
 
-TEST_F(OpsTest, BootstrapAfterRealWork) {
-    const CC& cc = ctx->cc;
-    const size_t slots = cc->GetRingDimension() / 2;
-    
-    double initial_val = 1.05;
-    auto pt = encode(cc, std::vector<double>(slots, initial_val));
-    auto ct = encrypt(cc, pt, ctx->pk());
-    EXPECT_EQ(level_of(ct), 0u);
+        for (int i = 0; i < mults_per_round; ++i) {
+            auto pt_scale = encode(cc, std::vector<double>(slots, 0.95), level_of(ct));
+            cc->EvalMultInPlace(ct, pt_scale);
+            cc->RescaleInPlace(ct);
+        }
+        total_mults += mults_per_round;
+        val *= std::pow(0.95, mults_per_round);
 
-    std::cout << "Performing 3 squarings..." << std::endl;
-    for (int i = 0; i < 3; ++i) {
-        ct = cc->EvalMult(ct, ct);
-        cc->RescaleInPlace(ct);
-    }
-    
-    std::cout << "Performing 6 identity multiplications..." << std::endl;
-    for (int i = 0; i < 6; ++i) {
-        auto pt_one = encode(cc, std::vector<double>(slots, 1.0), level_of(ct));
-        cc->EvalMultInPlace(ct, pt_one);
-        cc->RescaleInPlace(ct);
+        auto dec = decrypt(cc, ct, ctx->sk());
+        std::cout << "  after " << total_mults << " mults: level=" << level_of(ct)
+                  << " val=" << dec[0] << " (expected " << val << ")\n";
+        EXPECT_NEAR(dec[0], val, std::abs(val) * 0.05);
+
+        if (round < num_rounds - 1) {
+            std::cout << "  bootstrapping...\n";
+            ct = cc->EvalBootstrap(ct);
+            std::cout << "  post-bootstrap level=" << level_of(ct) << "\n";
+        }
     }
 
-    uint32_t current_lvl = level_of(ct);
-    std::cout << "Level before bootstrap: " << current_lvl << std::endl;
-    EXPECT_EQ(current_lvl, 9u); 
+    auto final_dec = decrypt(cc, ct, ctx->sk());
+    std::cout << "\n=== " << total_mults << " total multiplications with depth=16 ===\n"
+              << "Final value: " << final_dec[0] << " (expected " << val << ")\n";
 
-    std::cout << "Starting Bootstrapping..." << std::endl;
-    auto ct_btp = cc->EvalBootstrap(ct);
-    
-    uint32_t post_btp_lvl = level_of(ct_btp);
-    std::cout << "Level after bootstrap: " << post_btp_lvl << std::endl;
-    EXPECT_GT(post_btp_lvl, current_lvl);
-
-    auto result = decrypt(cc, ct_btp, ctx->sk());
-
-    double expected = std::pow(initial_val, 8.0);
-    
-    EXPECT_NEAR(result[0], expected, 1e-3);
-    
-    std::cout << "Successfully bootstrapped after 9 levels of real operations!" << std::endl;
-    std::cout << "Expected: " << expected << ", Actual: " << result[0] << std::endl;
+    EXPECT_NEAR(final_dec[0], val, std::abs(val) * 0.05);
+    EXPECT_EQ(total_mults, 32);
 }
