@@ -42,8 +42,11 @@ Ctx eval_chebyshev_f(const CC& cc, const Ctx& x,
 
 Ctx eval_polynomial(const CC& cc, const Ctx& x, const std::vector<double>& coeffs);
 
-Ctx eval_poly_logdepth(const CC& cc, const Ctx& x,
-                       const std::vector<double>& coeffs);
+Ctx eval_polynomial_ps(const CC& cc,
+                           const Ctx& x,
+                           const std::vector<double>& coeffs,
+                           const PublicKey<DCRTPoly>& pk,
+                           size_t slots);
 
 Ctx eval_linear_wsum(const CC& cc,
                      std::vector<Ctx>& cts,

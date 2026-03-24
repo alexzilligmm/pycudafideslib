@@ -21,3 +21,4 @@ enable_testing()
 
 add_cachemir_test(test_basics)
 add_cachemir_test(test_primitives)
+add_cachemir_test(test_poly_approx)

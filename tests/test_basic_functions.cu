@@ -18,20 +18,13 @@ TEST_F(OpsTest, ChebyshevCoefficients) {
     auto ct = encrypt(cc, pt, ctx->pk());
     std::cout << "level of ct: " << level_of(ct) << std::endl;
 
-    std::cout << "level of ct: " << level_of(ct) << std::endl;
-    auto binary_res = eval_polynomial_ps(cc, ct, F4_coeffs, ctx->pk(), slots);
-    std::cout << "level of binary_res: " << level_of(binary_res) << std::endl;
-
-    std::cout << "level of ct: " << level_of(ct) << std::endl;
     auto baseline = eval_polynomial(cc, ct, F4_coeffs);
     std::cout << "level of baseline: " << level_of(baseline) << std::endl;
 
     auto chebyshev_coeff = standard_to_chebyshev(F4_coeffs, -5, 5);
 
-    std::cout << "level of ct: " << level_of(ct) << std::endl;
     auto chebyshev_res = eval_chebyshev(cc, ct, chebyshev_coeff, /*a*/-5, /*b*/5);
     std::cout << "level of chebyshev_res: " << level_of(chebyshev_res) << std::endl;
-
 
     auto dec_chebyshev = decrypt(cc, chebyshev_res, ctx->sk());
     double chebyshev_homomorphic_res = dec_chebyshev[0];
@@ -48,10 +41,8 @@ TEST_F(OpsTest, ChebyshevCoefficients) {
     std::cout << "Expected (Plaintext): " << expected_res << std::endl;
     std::cout << "Actual (Homomorphic): " << homomorphic_res << std::endl;
     std::cout << "Chebyshev (Homomorphic): " << chebyshev_homomorphic_res << std::endl;
-    std::cout << "Binary (Homomorphic): " << decrypt(cc, binary_res, ctx->sk())[0] << std::endl;
     std::cout << "Absolute Error:       " << std::abs(homomorphic_res - expected_res) << std::endl;
     std::cout << "Chebyshev Absolute Error: " << std::abs(chebyshev_homomorphic_res - expected_res) << std::endl;
-    std::cout << "Binary Absolute Error: " << std::abs(decrypt(cc, binary_res, ctx->sk())[0] - expected_res) << std::endl;
 
     EXPECT_NEAR(homomorphic_res, expected_res, 1e-5);
 

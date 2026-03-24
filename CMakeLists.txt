@@ -72,6 +72,7 @@ set(COMMON_CXX_FLAGS -O3 -fopenmp)
 add_library(cachemir_lib STATIC
     src/bootstrap.cu
     src/primitives.cu
+    src/poly_eval.cu
     src/linear.cu
     src/nonlinear.cu
     src/llama.cu
