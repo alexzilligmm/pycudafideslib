@@ -4,7 +4,11 @@ cmake_minimum_required(VERSION 3.25)
 function(add_cachemir_test name)
     add_executable(${name} ${name}.cu)
     target_link_libraries(${name} PRIVATE cachemir_lib GTest::gtest_main)
-    target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_include_directories(${name} PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/tests
+        ${GTEST_INCLUDE_DIRS}
+    )
     set_target_properties(${name} PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON
         CUDA_RESOLVE_DEVICE_SYMBOLS ON
@@ -22,3 +26,4 @@ enable_testing()
 add_cachemir_test(test_basics)
 add_cachemir_test(test_primitives)
 add_cachemir_test(test_poly_approx)
+add_cachemir_test(test_non_linear)

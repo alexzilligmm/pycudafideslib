@@ -4,12 +4,10 @@
 #include <iostream>
 #include <random>
 
-Ctx bootstrap_to(LlamaInference&, const Ctx&, uint32_t);
-
-LlamaInference make_llama(int logN, int hidDim, int expDim,
+Inference make_llama(int logN, int hidDim, int ffDim,
                            int seqLen, int numHeads, bool parallel) {
-    LlamaInference llama;
-    llama.size     = {hidDim, expDim, numHeads, seqLen};
+    Inference llama;
+    llama.size     = {hidDim, ffDim, numHeads, seqLen};
     llama.logN     = logN;
     llama.parallel = parallel;
 
@@ -28,14 +26,14 @@ LlamaInference make_llama(int logN, int hidDim, int expDim,
 
 static std::mt19937_64 rng_(42);
 
-static Ptx rand_plaintext(LlamaInference& llama) {
+static Ptx rand_plaintext(Inference& llama) {
     std::uniform_real_distribution<double> dist(-1.0, 1.0);
     std::vector<double> msg(llama.slots);
     for (auto& v : msg) v = dist(rng_);
     return llama.cc()->MakeCKKSPackedPlaintext(msg);
 }
 
-static Ctx rand_ciphertext(LlamaInference& llama) {
+static Ctx rand_ciphertext(Inference& llama) {
     std::uniform_real_distribution<double> dist(-20.0, 0.0);
     std::vector<double> msg(llama.slots);
     for (auto& v : msg) v = dist(rng_);
@@ -43,10 +41,10 @@ static Ctx rand_ciphertext(LlamaInference& llama) {
     return llama.cc()->Encrypt(llama.fhe->pk(), pt);
 }
 
-void prepare_weights(LlamaInference& llama,
+void prepare_weights(Inference& llama,
                       const std::vector<std::string>& names) {
     std::cout << "Preparing weights...\n";
-    const int hD = llama.size.hidDim, eD = llama.size.expDim, S = llama.slots;
+    const int hD = llama.size.hidDim, eD = llama.size.ffDim, S = llama.slots;
     for (const auto& n : names) {
         int cnt;
         if      (n == "q"||n == "k"||n == "v"||n == "out") cnt = hD * hD / S;
@@ -61,7 +59,7 @@ void prepare_weights(LlamaInference& llama,
     std::cout << "Weights ready.\n";
 }
 
-void prepare_cache(LlamaInference& llama,
+void prepare_cache(Inference& llama,
                     const std::vector<std::string>& names) {
     std::cout << "Preparing cache...\n";
     const int hD = llama.size.hidDim, seqL = llama.size.seqLen;
@@ -88,7 +86,7 @@ void prepare_cache(LlamaInference& llama,
     std::cout << "Cache ready.\n";
 }
 
-Ctx decoder(LlamaInference& llama, const Ctx& x_in) {
+Ctx decoder(Inference& llama, const Ctx& x_in) {
     const CC& cc = llama.cc();
     std::cout << "=== Decoder ===\n";
     Timer t;
@@ -153,7 +151,7 @@ Ctx decoder(LlamaInference& llama, const Ctx& x_in) {
     return y;
 }
 
-Ctx model(LlamaInference& llama, const Ctx& x_in) {
+Ctx model(Inference& llama, const Ctx& x_in) {
     Timer t;
     Ctx x = x_in;
     for (int i = 0; i < 32; ++i) {

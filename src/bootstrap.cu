@@ -1,9 +1,9 @@
-#include "llama.h"
+#include "inference.h"
 #include <iostream>
 
-Ctx bootstrap_to(LlamaInference& llama, const Ctx& ct,
+Ctx bootstrap_to(Inference& inf, const Ctx& ct,
                   uint32_t target_remaining) {
-    const CC& cc = llama.cc();
+    const CC& cc = inf.cc();
     std::cout << "Bootstrapping (level " << level_of(ct) << ")...\n";
 
     Timer t;
@@ -13,7 +13,7 @@ Ctx bootstrap_to(LlamaInference& llama, const Ctx& ct,
               << " s, raw output level " << level_of(fresh) << "\n";
 
     if (target_remaining > 0) {
-        uint32_t total      = (uint32_t)llama.total_depth;
+        uint32_t total      = (uint32_t)inf.total_depth;
         uint32_t fresh_con  = level_of(fresh);               // consumed now
         uint32_t want_con   = (total > target_remaining)
                               ? (total - target_remaining) : 0u;
