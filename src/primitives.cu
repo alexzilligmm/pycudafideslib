@@ -62,7 +62,7 @@ Ctx inv_sqrt_newton(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters) 
 ///        to cost just 2 levels, and to also parallelize those multiplications.
 ///        Which I am wary to believe.
 Ctx goldschmidt_inv_sqrt(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters) {
-    Ctx ans = cc->EvalAdd(ans_init, 0.0); // makes function idempotent TODO: replace with copy tho!
+    Ctx ans = ans_init->Clone(); // makes function idempotent TODO: replace with copy tho!
     Ctx x_copy = x; 
     
     match_level(cc, x_copy, ans);
