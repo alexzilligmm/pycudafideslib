@@ -218,7 +218,7 @@ Ctx norm(LlamaInference& llama, const Ctx& x_in,
     reduce_to_level(cc, varc_r, level_of(ans), S);
 
     // And now we are calling the primitive... eh?
-    ans = goldschmidt_inv_sqrt(cc, S, varc_r, ans, 2);
+    ans = goldschmidt_inv_sqrt(cc, varc_r, ans, 2);
 
     Ctx x_copy = x_in;
     reduce_to_level(cc, x_copy, level_of(ans), S);

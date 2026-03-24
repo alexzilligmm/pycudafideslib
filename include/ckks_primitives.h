@@ -14,19 +14,15 @@ struct CKKSFHECtx {
 };
 
 
-Ctx inv_sqrt_newton(const CC& cc, int slots,
-                    const Ctx& x, const Ctx& ans_init, int iters);
+Ctx inv_sqrt_newton(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters);
 
-
-Ctx goldschmidt_inv_sqrt(const CC& cc, int slots,
-                          const Ctx& x, const Ctx& ans_init, int iters);
+Ctx goldschmidt_inv_sqrt(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters);
 
 Ctx exp_squaring(const CC& cc, Ctx x, int iters);
 
-Ctx newton_inverse(const CC& cc, Ctx res, Ctx dnm, int iters);
+Ctx newton_inverse(const CC& cc, const Ctx& res, const Ctx& dnm, int iters);
 
-Ctx goldschmidt_inv(const CC& cc, int slots,
-                    const Ctx& a, const Ctx& x0_init, int iters);
+Ctx goldschmidt_inv(const CC& cc, const Ctx& a, const Ctx& x0_init, int iters);
 
 std::vector<double> chebyshev_coeffs(std::function<double(double)> f,
                                       double a, double b, int degree);

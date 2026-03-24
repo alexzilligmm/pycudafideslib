@@ -9,7 +9,6 @@ static void eval_rescale(const CC& cc, Ctx& x) {
 
 /// @brief Computes the inverse square root of a value using the Newton-Raphson iteration method.
 /// @param cc, the crypto context
-/// @param slots, the number of slots in the ciphertext TODO: this parameter is useless???
 /// @param x, the input ciphertext for which we want to compute 1/sqrt(x)
 /// @param ans_init, the initial guess for 1/sqrt(x)
 /// @param iters, the number of iterations to perform
@@ -17,9 +16,9 @@ static void eval_rescale(const CC& cc, Ctx& x) {
 /// @todo: this function is instead canonical... if we find out
 ///        that the goldschmidt method performs the same, we should replace
 ///        this function with the goldschmidt method, which should be better.
-Ctx inv_sqrt_newton(const CC& cc, int slots,
-                    const Ctx& x, const Ctx& ans_init, int iters) {
+Ctx inv_sqrt_newton(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters) {
     Ctx ans = ans_init;
+    int slots = cc->GetRingDimension() / 2;
     
     for (int i = 0; i < iters; ++i) {
         Ctx ansSq = cc->EvalSquare(ans);
@@ -49,7 +48,6 @@ Ctx inv_sqrt_newton(const CC& cc, int slots,
 
 /// @brief Computes the inverse square root of a value using the Goldschmidt iteration method.
 /// @param cc, the crypto context
-/// @param slots, the number of slots in the ciphertext TODO: this parameter is useless??
 /// @param x, the input ciphertext for which we want to compute 1/sqrt(x)
 /// @param ans_init, the initial guess for 1/sqrt(x)
 /// @param iters, the number of iterations to perform
@@ -63,8 +61,7 @@ Ctx inv_sqrt_newton(const CC& cc, int slots,
 ///        applied there? We should thoroughly check this, because it promises
 ///        to cost just 2 levels, and to also parallelize those multiplications.
 ///        Which I am wary to believe.
-Ctx goldschmidt_inv_sqrt(const CC& cc, int slots,
-                          const Ctx& x, const Ctx& ans_init, int iters) {
+Ctx goldschmidt_inv_sqrt(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters) {
     Ctx ans = ans_init;
     Ctx x_copy = x; 
     
@@ -97,27 +94,25 @@ Ctx goldschmidt_inv_sqrt(const CC& cc, int slots,
 /// @param dnm, the input ciphertext for which we want to compute the inverse, updated in-place
 /// @param iters, the number of iterations to perform
 /// @return the i-th Newton approximation of the inverse
-/// @todo: differently from the goldschmidt approximation, this function on the other
-///        hand assumes that the input ciphertexts can be updated in-place.
-///        We should make the two functions consistent, no?
-Ctx newton_inverse(const CC& cc, Ctx res, Ctx dnm, int iters) {
+Ctx newton_inverse(const CC& cc, const Ctx& res, const Ctx& dnm, int iters) {
+    Ctx res_copy = res;
+
     for (int i = 0; i < iters; ++i) {
-        match_level(cc, res, dnm);
-        Ctx a = cc->EvalMult(res, dnm);
+        match_level(cc, res_copy, dnm);
+        Ctx a = cc->EvalMult(res_copy, dnm);
         cc->EvalNegateInPlace(a);
         cc->EvalAddInPlace(a, 2.0);
         eval_rescale(cc, a);
 
-        match_level(cc, res, a);
-        res = cc->EvalMult(res, a);
-        eval_rescale(cc, res);
+        match_level(cc, res_copy, a);
+        res_copy = cc->EvalMult(res_copy, a);
+        eval_rescale(cc, res_copy);
     }
-    return res;
+    return res_copy;
 }
 
 /// @brief Computes the inverse of a value using the Goldschmidt iteration method.
 /// @param cc, the crypto context
-/// @param slots, the number of slots in the ciphertext TODO: this parameter is useless too???
 /// @param a, the ciphertext a, for which we want to compute 1/a
 /// @param x0_init, the initial guess for 1/a
 /// @param iters, the number of iterations to perform
@@ -129,8 +124,7 @@ Ctx newton_inverse(const CC& cc, Ctx res, Ctx dnm, int iters) {
 ///        The reason why it would make sense, is because during runtime
 ///        we will likely never reuse something that was used as input to this
 ///        function.
-Ctx goldschmidt_inv(const CC& cc, int slots,
-                    const Ctx& a, const Ctx& x0_init, int iters) {
+Ctx goldschmidt_inv(const CC& cc, const Ctx& a, const Ctx& x0_init, int iters) {
     Ctx x0 = x0_init;  
     Ctx a_l = a;      
 
