@@ -93,14 +93,12 @@ def main():
     def g(key):
         return sd[key].detach().float().numpy()
 
-    # ---- Embeddings --------------------------------------------------------
     wte = g("transformer.wte.weight")          # (vocab_size, 768)
     wpe = g("transformer.wpe.weight")          # (1024, 768)
     save_matrix(str(out / "wte.txt"), wte, S)
     save_matrix(str(out / "wpe.txt"), wpe, S)
     print(f"  wte {wte.shape}  wpe {wpe.shape}")
 
-    # ---- Per-layer weights --------------------------------------------------
     n_layers = model.config.n_layer    # 12 for gpt2-small
     n_heads = model.config.n_head      # 12
     hid = model.config.n_embd          # 768

@@ -7,8 +7,6 @@
 #include <random>
 #include <iostream>
 
-// ── plaintext helpers ────────────────────────────────────────────────────
-
 static std::vector<double> rotate_vec(const std::vector<double>& v, int k) {
     int n = (int)v.size();
     k = ((k % n) + n) % n;
@@ -32,8 +30,6 @@ static std::vector<double> mul_vec(const std::vector<double>& a,
     return out;
 }
 
-// Plaintext replica of linear() — same algorithm, on double vectors.
-// This is the source-of-truth reference (mirrors the Go code structure).
 static std::vector<double> linear_plain(
         const std::vector<double>& x_in,
         const std::vector<std::vector<double>>& weights,
@@ -53,47 +49,36 @@ static std::vector<double> linear_plain(
     int intRot = S / hidDim;
     int n_weights = (int)weights.size();
 
-    // pre-processing: replicate across blocks
     auto xb = x_in;
     for (int step = preStep; step < S; step *= 2)
         xb = add_vec(xb, rotate_vec(xb, step));
 
-    // baby-step rotations
     std::vector<std::vector<double>> ctRot(inRot);
     ctRot[0] = xb;
     for (int i = 1; i < inRot; ++i)
         ctRot[i] = rotate_vec(ctRot[i - 1], intRot);
 
-    // plaintext multiplications
     std::vector<std::vector<double>> partSum(n_weights);
     for (int i = 0; i < n_weights; ++i)
         partSum[i] = mul_vec(ctRot[i % inRot], weights[i]);
 
-    // baby-step accumulation
     for (int i = 0; i < n_weights; ++i) {
         if (i % inRot > 0)
             partSum[i - i % inRot] = add_vec(partSum[i - i % inRot], partSum[i]);
     }
 
-    // giant-step rotations
     for (int i = 1; i < outRot; ++i)
         partSum[i * inRot] = rotate_vec(partSum[i * inRot], i * inRot * intRot);
 
-    // giant-step accumulation
     auto result = partSum[0];
     for (int i = 1; i < outRot; ++i)
         result = add_vec(result, partSum[i * inRot]);
 
-    // post-processing: replicate across blocks
     for (int step = postStep; step < S; step *= 2)
         result = add_vec(result, rotate_vec(result, step));
 
     return result;
 }
-
-// ── Test fixture ─────────────────────────────────────────────────────────
-// Collects all rotation indices needed by linear() and passes them
-// to make_ckks_context via extra_rot_steps (before LoadContext).
 
 static constexpr int HD = 256;
 static constexpr int FD = 1024;
@@ -173,7 +158,6 @@ protected:
     }
 };
 
-// ── Test 1: HE linear matches plaintext simulation (hid->hid) ──────────
 
 TEST_F(LinearTest, HidToHid_PlaintextMatch) {
     const CC& cc = ctx->cc;
@@ -219,7 +203,6 @@ TEST_F(LinearTest, HidToHid_PlaintextMatch) {
     EXPECT_LT(max_err, 0.5);
 }
 
-// ── Test 2: Slot masking (zero-padded vs naive weights) ─────────────────
 
 TEST_F(LinearTest, SlotMasking) {
     const CC& cc = ctx->cc;
@@ -230,14 +213,12 @@ TEST_F(LinearTest, SlotMasking) {
     std::cout << "\n=== Slot Masking: zero-padded vs naive ===\n"
               << "  S=" << S << " hidDim=" << HD << " replicas=" << replicas << "\n";
 
-    // Input: data in first hidDim slots, garbage elsewhere
     std::vector<double> x_in(S, 0.0);
     for (int i = 0; i < HD; ++i)
         x_in[i] = 1.0 + 0.01 * i;
     for (int i = HD; i < S; ++i)
         x_in[i] = 999.0;
 
-    // ── A) Properly zero-padded weight[0] ──
     {
         inf.w["q"].clear();
         std::vector<double> w0(S, 0.0);
@@ -269,7 +250,6 @@ TEST_F(LinearTest, SlotMasking) {
         EXPECT_LT(max_err, 0.5);
     }
 
-    // ── B) Naive weight[0] = 1 everywhere (no masking) ──
     {
         inf.w["q"].clear();
         inf.w["q"].push_back(cc->MakeCKKSPackedPlaintext(
@@ -300,9 +280,7 @@ TEST_F(LinearTest, SlotMasking) {
         std::cout << "    corruption: |result - true| = "
                   << std::abs(expected_naive[0] - x_in[0]) << "\n";
 
-        // HE matches naive plaintext sim
         EXPECT_LT(max_err_naive, 1.0);
-        // But naive result is far from true input (garbage leaked through)
         EXPECT_GT(std::abs(expected_naive[0] - x_in[0]), 10.0)
             << "Without masking, garbage should corrupt the plaintext result";
     }

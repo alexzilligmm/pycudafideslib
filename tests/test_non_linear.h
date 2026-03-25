@@ -2,9 +2,9 @@
 
 #include <gtest/gtest.h>
 #include "fideslib_wrapper.h"
-#include "ckks_primitives.h"  // polynomial evaluation, Chebyshev approximation, etc.
-#include "inference.h"     // Inference, ModelSize
-#include "llama.h"         // nonlinear function declarations
+#include "ckks_primitives.h" 
+#include "inference.h"    
+#include "llama.h"        
 #include <cmath>
 
 inline Inference make_inf(std::shared_ptr<CKKSContext> ctx, int depth, int overhead) {

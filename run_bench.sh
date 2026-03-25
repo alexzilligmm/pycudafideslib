@@ -42,7 +42,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate integer-only numeric args early so typos like "3072~" fail fast.
 for kv in \
     "logN:$LOGN" \
     "hidDim:$HIDDIM" \
@@ -61,7 +60,6 @@ done
 
 COMMON_FLAGS="-logN $LOGN -hidDim $HIDDIM -ffDim $FFDIM -seqLen $SEQLEN -numHeads $NUMHEADS"
 
-# ── Check binary exists ──────────────────────────────────────────────────
 if [ ! -x "$BINARY" ]; then
     echo "Binary not found at $BINARY"
     echo "Build first:  mkdir -p build && cd build && cmake .. && make -j"
@@ -74,7 +72,6 @@ rm -f "$output_file" "$summary_file"
 
 echo "timestamp,status,module,level,time" > "$output_file"
 
-# ── Select operations based on model ─────────────────────────────────────
 if [ "$MODEL" = "gpt2" ]; then
     # GPT-2: no RoPE, no SiLU, no UpGate; has GELU, Up
     BASIC_OPS=("QKV" "QK_T" "AttnV" "Up" "Down" "Cache" "CtMult")
@@ -131,7 +128,6 @@ run_test() {
     fi
 }
 
-# ── 1. Basic operations: sweep level 1..16 ───────────────────────────────
 echo ""
 echo "=== Benchmarking basic operations (${MODEL}) ==="
 echo ""
@@ -142,14 +138,12 @@ for test in "${BASIC_OPS[@]}"; do
     done
 done
 
-# GELU (GPT-2 only)
 if [ "$HAS_GELU" = "1" ]; then
     for level in $(seq 1 $MAX_LEVEL); do
         run_test "GELU" "$level"
     done
 fi
 
-# ── 2. Softmax: fixed input level=16, sweep btpLevel 1..16 ──────────────
 echo ""
 echo "=== Benchmarking Softmax ==="
 echo ""
@@ -158,20 +152,15 @@ for btp_level in $(seq 1 $MAX_LEVEL); do
     run_test "Softmax" "$MAX_LEVEL" "-btpLevel $btp_level" "Softmax"
 done
 
-# ── 3. Norm: two passes ─────────────────────────────────────────────────
-#   SqrtNt:   sweep input level 1..16 (measures Newton init cost)
-#   SqrtGold: fixed input level=16, sweep btpLevel 1..16 (measures Goldschmidt after bootstrap)
 echo ""
 echo "=== Benchmarking Norm (SqrtNt + SqrtGold) ==="
 echo ""
 
 for level in $(seq 1 $MAX_LEVEL); do
-    # SqrtNt: Newton-Raphson init at each input level
     run_test "Norm" "$level" "" "SqrtNt"
 done
 
 for btp_level in $(seq 1 $MAX_LEVEL); do
-    # SqrtGold: Goldschmidt refinement at each post-bootstrap level
     run_test "Norm" "$MAX_LEVEL" "-btpLevel $btp_level" "SqrtGold"
 done
 
@@ -179,7 +168,6 @@ echo ""
 echo "=== Raw results saved to $output_file ==="
 echo ""
 
-# ── 4. Build summary table ──────────────────────────────────────────────
 {
     echo -n "module"
     for i in $(seq 1 $MAX_LEVEL); do
@@ -217,7 +205,6 @@ for test in "${SUMMARY_OPS[@]}"; do
         ((i++))
     done <<< "$times"
 
-    # Pad missing columns
     while [ $i -le $MAX_LEVEL ]; do
         printf "\t0.00" >> "$summary_file"
         ((i++))
@@ -231,6 +218,5 @@ echo ""
 cat "$summary_file"
 echo ""
 
-# ── 5. Run bootstrap placement optimizer ─────────────────────────────────
 echo "=== Running bootstrap placement optimizer ==="
 python3 bootstrap.py --prune=1 --file="$summary_file" --model="$MODEL"

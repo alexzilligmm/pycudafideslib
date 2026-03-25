@@ -2,7 +2,7 @@
 #include "fideslib_wrapper.h"
 #include <cmath>
 #include <numeric>
-#include "test_basics.h" // For OpsTest fixture and context setup#include "ckks_primitives.h" // For the primitive implementations we're testing
+#include "test_basics.h" 
 #include "ckks_primitives.h" 
 
 TEST_F(OpsTest, GoldschmidtInvSqrt) {

@@ -3,7 +3,7 @@
 #include <cmath>
 #include <numeric>
 #include "test_basics.h"
-#include "ckks_primitives.h" // For the primitive implementations we're testing
+#include "ckks_primitives.h" 
 #include <cub/cub.cuh>
 
 TEST_F(OpsTest, SpacePatersonStockmeyer) {

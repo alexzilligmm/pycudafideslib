@@ -145,20 +145,21 @@ Ctx gelu(Inference& inf, const Ctx& x_in, const GeluConfig& cfg) {
         0.0,
         0.0018067462606141187
     };
-    std::cout << "Computing GeLU with rescale_factor = " << rescale_factor << "\n";
 
     Ctx lt_m4, lt_m195, lt_p3;
 
     lt_m4   = lt_function(inf, x_in, -4.0,  rescale_factor);
-    std::cout << "Level after lt_m4: " << level_of(lt_m4) << "\n";
     lt_m195 = lt_function(inf, x_in, -1.95, rescale_factor);
-    std::cout << "Level after lt_m195: " << level_of(lt_m195) << "\n";
     lt_p3   = lt_function(inf, x_in,  3.0,  rescale_factor);
-    std::cout << "Level after lt_p3: " << level_of(lt_p3) << "\n";
-    std::cout << "Level of x_in: " << level_of(x_in) << "\n";
-    
 
-    std::cout << "Interval computed" << "\n";
+    
+    lt_m4   = cc->EvalBootstrap(lt_m4);
+    lt_m195 = cc->EvalBootstrap(lt_m195);
+    lt_p3   = cc->EvalBootstrap(lt_p3);
+
+    match_level(cc, lt_m4, lt_m195);
+    match_level(cc, lt_m195, lt_p3);
+
 
     Ctx ind_f0  = cc->EvalSub(lt_m195, lt_m4);
     Ctx ind_f1  = cc->EvalSub(lt_p3,   lt_m195);
@@ -191,8 +192,6 @@ Ctx gelu(Inference& inf, const Ctx& x_in, const GeluConfig& cfg) {
 }
 
 /// @brief LayerNorm: (x - mean) * 1/sqrt(variance).
-/// Initial 1/sqrt guess is computed via LINEAR, REMEZ, or TAYLOR (set in cfg),
-/// then refined with Goldschmidt iterations.
 Ctx norm(Inference& inf, const Ctx& x_in,
          int target_level_after_btp, const NormConfig& cfg) {
     const CC& cc = inf.cc();
@@ -210,12 +209,19 @@ Ctx norm(Inference& inf, const Ctx& x_in,
             inv_sqrt_init = eval_polynomial(cc, varc, coeffs_std);
             break;
 
-        case NRInitMethod::REMEZ:
-            inv_sqrt_init = eval_rational_approx(
-                cc, varc, coeffs_std, cfg.remez_q_coeffs,
-                cfg.remez_q_min, cfg.remez_q_max,
-                inf.fhe->pk(), (size_t)S, cfg.remez_div_iters);
+        case NRInitMethod::REMEZ: {
+            double alpha = 4.0 / (cfg.gs_d_min + cfg.gs_d_max);
+            double beta  = alpha * alpha / 4.0;
+            auto div_init = cc->EvalMult(varc, -beta);
+            cc->RescaleInPlace(inv_sqrt_init);
+            cc->EvalAddInPlace(inv_sqrt_init, alpha);
+
+            inv_sqrt_init = eval_rational_approx(cc, div_init,
+                                  cfg.remez_p_coeffs, cfg.remez_q_coeffs,
+                                  cfg.remez_q_min, cfg.remez_q_max, inf.fhe->pk(), inf.slots,
+                                  cfg.remez_div_iters);
             break;
+        }
 
         case NRInitMethod::TAYLOR: {
             std::vector<double> taylor_c = taylor_inv_sqrt_coeffs(cfg.taylor_z0);
@@ -224,10 +230,9 @@ Ctx norm(Inference& inf, const Ctx& x_in,
         }
     }
 
-    varc          = bootstrap_to(inf, varc, (uint32_t)target_level_after_btp);
-    inv_sqrt_init = bootstrap_to(inf, inv_sqrt_init, (uint32_t)target_level_after_btp);
-
-    Ctx inv_sqrt_varc = goldschmidt_inv_sqrt(cc, varc, inv_sqrt_init, cfg.gs_iters);
+    Ctx inv_sqrt_varc;
+    inv_sqrt_varc = inv_sqrt_newton(cc, varc, inv_sqrt_init, cfg.nr_iters);
+    
 
     Ctx x_centered = x_in->Clone();
     Ctx true_mean  = cc->EvalMult(mean, 1.0 / (double)hD);
@@ -244,8 +249,6 @@ Ctx norm(Inference& inf, const Ctx& x_in,
 }
 
 /// @brief exp(x) ≈ (1 + x / 2^r)^{2^r}.
-/// Costs 1 plaintext-mult + r squarings = (r+1) levels consumed.
-/// For x ≤ 0 the base stays in (0,1], so repeated squaring never overflows.
 Ctx exp_approx(const CC& cc, const Ctx& x, int r) {
     double inv_2r = 1.0 / (double)(1 << r);
     Ctx y = cc->EvalMult(x, inv_2r);    // x / 2^r
@@ -259,8 +262,7 @@ Ctx exp_approx(const CC& cc, const Ctx& x, int r) {
     return y;
 }
 
-/// @brief [FROZEN] Original Cachemir softmax (no max-subtraction).
-/// Uses exp(x) ≈ (1 + x/128)^128 and inline Goldschmidt for 1/sum.
+/// @brief [TODO:check this] Original Cachemir softmax (no max-subtraction).
 Ctx softmax_cachemir(Inference& inf, const Ctx& x_in,
                       int target_level_after_btp, int temp) {
     const CC& cc = inf.cc();
@@ -319,19 +321,7 @@ Ctx softmax_cachemir(Inference& inf, const Ctx& x_in,
 }
 
 /// @brief Numerically-stable softmax: exp(x - max) / sum(exp(x - max)).
-///
-/// 1. If precomputed_max is null, compute max via rotation-reduce using
-///    max(a,b) ≈ (a+b + sign(a-b)*(a-b)) / 2.
-///    Subtracting max makes all exponents ≤ 0.
-///
-/// 2. exp(z) via exp_approx: (1 + z/2^r)^{2^r}.
-///    Since z ≤ 0, the base is in (0,1] and squaring stays bounded.
-///
-/// 3. Sum of exponentials via rotation-reduce, then Goldschmidt inverse
-///    for 1/sum, and multiply to get the final probabilities.
-///
 /// @param precomputed_max  If non-null, skip the max computation (useful when
-///                         max is estimated offline or from a previous layer).
 Ctx softmax(Inference& inf, const Ctx& x_in,
              int target_level_after_btp,
              int r, int gs_iters, int seq_dim,
@@ -340,7 +330,6 @@ Ctx softmax(Inference& inf, const Ctx& x_in,
     const int S  = inf.slots;
     const int stride = S / seq_dim;
 
-    // ── 1. max(x) via rotation-reduce ──
     Ctx x_max;
     if (precomputed_max != nullptr) {
         x_max = precomputed_max->Clone();
@@ -367,33 +356,27 @@ Ctx softmax(Inference& inf, const Ctx& x_in,
         }
     }
 
-    // ── 2. x_shifted = x - max(x),  all entries ≤ 0 ──
     Ctx x_shifted = x_in->Clone();
     match_level(cc, x_shifted, x_max);
     cc->EvalSubInPlace(x_shifted, x_max);
 
-    // ── 3. exp(x_shifted) via (1 + z/2^r)^{2^r} ──
     Ctx exp_ct = exp_approx(cc, x_shifted, r);
 
-    // ── 4. sum(exp) via rotation-reduce ──
     Ctx exp_sum = exp_ct->Clone();
     for (int gap = stride; gap < S; gap *= 2) {
         Ctx tmp = cc->EvalRotate(exp_sum, gap);
         cc->EvalAddInPlace(exp_sum, tmp);
     }
 
-    // ── 5. Bootstrap ──
     exp_ct  = bootstrap_to(inf, exp_ct,  (uint32_t)target_level_after_btp);
     exp_sum = bootstrap_to(inf, exp_sum, (uint32_t)target_level_after_btp);
 
-    // ── 6. 1 / sum(exp) via Goldschmidt ──
     double alpha = 1.0 / (double)seq_dim;
     Ctx inv_init = encrypt_const(cc, alpha, (size_t)S, inf.fhe->pk());
     match_level(cc, inv_init, exp_sum);
 
     Ctx inv_sum = goldschmidt_inv(cc, exp_sum, inv_init, gs_iters);
 
-    // ── 7. softmax = exp(x - max) * (1 / sum(exp)) ──
     match_level(cc, exp_ct, inv_sum);
     Ctx y = cc->EvalMult(exp_ct, inv_sum);
     cc->RescaleInPlace(y);

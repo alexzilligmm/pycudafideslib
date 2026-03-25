@@ -266,3 +266,5 @@ The optimizer will automatically try all registered variants and pick the elemen
 | MLP | Up -> GELU -> Down | Up + Gate -> SiLU -> elem_mult -> Down |
 | Biases | Yes (all layers) | No |
 | Activation | GELU (piecewise, ~20 levels) | SiLU (Chebyshev-127, ~7 levels) |
+
+
