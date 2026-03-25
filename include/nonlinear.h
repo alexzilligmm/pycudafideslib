@@ -74,5 +74,21 @@ Ctx lt_function(Inference& inf, const Ctx& x, double value, double rescale_facto
 
 Ctx gelu   (Inference& inf, const Ctx& x, const GeluConfig& cfg = GELU_ENCLLM_GPT2);
 Ctx norm   (Inference& inf, const Ctx& x, int target_level_after_btp, const NormConfig& cfg = NORM_ENCLLM_GPT2);
-Ctx softmax(Inference& inf, const Ctx& x, int target_level_after_btp, int temp);
+
+/// exp(x) ≈ (1 + x / 2^r)^{2^r}.  Costs 1 mult + r squarings = r+1 levels.
+Ctx exp_approx(const CC& cc, const Ctx& x, int r);
+
+/// [FROZEN] Original Cachemir softmax (no max-subtraction).
+Ctx softmax_cachemir(Inference& inf, const Ctx& x, int target_level_after_btp, int temp);
+
+/// Numerically-stable softmax: exp(x - max) / sum(exp(x - max)).
+/// @param r          Squarings for exp approx (accuracy vs depth trade-off).
+/// @param gs_iters   Goldschmidt iterations for 1/sum division.
+/// @param seq_dim    Sequence positions to reduce over (power of 2, divides S).
+/// @param precomputed_max  If non-null, used as max(x) instead of computing it.
+Ctx softmax(Inference& inf, const Ctx& x,
+            int target_level_after_btp,
+            int r, int gs_iters, int seq_dim,
+            const Ctx& precomputed_max = nullptr);
+
 Ctx argmax (Inference& inf, const Ctx& x);

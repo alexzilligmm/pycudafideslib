@@ -243,42 +243,48 @@ Ctx norm(Inference& inf, const Ctx& x_in,
     return result;
 }
 
-/// @brief Softmax in the Cachemir's implementation
-/// @param temp Additional squarings such that the computed function is actually
-///             exp(x * 2^temp) instead of exp(x). To add, as the name suggests, a temperature effect.
-Ctx softmax(Inference& inf, const Ctx& x_in,
-             int target_level_after_btp, int temp) {
+/// @brief exp(x) ≈ (1 + x / 2^r)^{2^r}.
+/// Costs 1 plaintext-mult + r squarings = (r+1) levels consumed.
+/// For x ≤ 0 the base stays in (0,1], so repeated squaring never overflows.
+Ctx exp_approx(const CC& cc, const Ctx& x, int r) {
+    double inv_2r = 1.0 / (double)(1 << r);
+    Ctx y = cc->EvalMult(x, inv_2r);    // x / 2^r
+    cc->RescaleInPlace(y);
+    cc->EvalAddInPlace(y, 1.0);          // 1 + x/2^r
+
+    for (int i = 0; i < r; ++i) {        // square r times
+        cc->EvalSquareInPlace(y);
+        cc->RescaleInPlace(y);
+    }
+    return y;
+}
+
+/// @brief [FROZEN] Original Cachemir softmax (no max-subtraction).
+/// Uses exp(x) ≈ (1 + x/128)^128 and inline Goldschmidt for 1/sum.
+Ctx softmax_cachemir(Inference& inf, const Ctx& x_in,
+                      int target_level_after_btp, int temp) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
-    const auto& sk = inf.fhe->sk();
 
     Ctx x = x_in;
 
-    // These guys are approximating exp(x) via the
-    // canonical limit definition: exp(x) = lim_{n->inf} (1 + x/n)^n.
-    // They choose n=128=2^7, so they need 7 squarings to get the final result.
     Ptx pt_inv128 = const_pt(cc, 0.0078125, S, level_of(x));
     cc->EvalMultInPlace(x, pt_inv128);
     cc->RescaleInPlace(x);
 
-    Ptx pt_one = const_pt(cc, 1.0, S, level_of(x));
-    cc->EvalAddInPlace(x, pt_one);
+    cc->EvalAddInPlace(x, 1.0);
 
     for (int i = 0; i < (7 + temp); ++i) {
         cc->EvalSquareInPlace(x);
         cc->RescaleInPlace(x);
     }
 
-    Ctx exp_ct = cc->EvalAdd(x, 0.0);
-    // TODO: why do they make a copy like so?
-    // can't they just
-    //   Ctx exp_ct = x; ???
+    Ctx exp_ct = x->Clone();
 
-    const double v = 8.0 / S;   // = 1/256 for S=2048
+    const double v = 8.0 / S;
     cc->EvalMultInPlace(x, v);
-    cc->RescaleInPlace(x);      // NL -> 1
+    cc->RescaleInPlace(x);
 
-    // Trick to compute total sum in log-time
     for (int j = 1; j < 256; j *= 2) {
         Ctx tmp = cc->EvalRotate(x, 1024 / j);
         cc->EvalAddInPlace(x, tmp);
@@ -286,46 +292,110 @@ Ctx softmax(Inference& inf, const Ctx& x_in,
 
     x = bootstrap_to(inf, x, (uint32_t)target_level_after_btp);
 
-    // TODO, understand: x right now is the total sum, right?
-    // if so then dnm should be 2 - x right now no?
-    Ctx res = cc->EvalNegate(x);         // NL=2 (or auto-rescale from bootstrap NL=2)
-    cc->RescaleInPlace(res);             // NL->1
-    cc->EvalAddInPlace(res, 1.0);        // res = 1 - v*sum ~ 0
-    Ctx dnm = cc->EvalAdd(res, 1.0);     // dnm ~ 1  (will converge to 1/(v*sum))
+    Ctx res = cc->EvalNegate(x);
+    cc->RescaleInPlace(res);
+    cc->EvalAddInPlace(res, 1.0);
+    Ctx dnm = cc->EvalAdd(res, 1.0);
 
-    // TODO This just goldschmidt for 7 iterations, why not calling the primitive?
     for (int i = 0; i < 7; ++i) {
         cc->EvalSquareInPlace(res);
         cc->RescaleInPlace(res);
 
         Ctx tmp = cc->EvalAdd(res, 1.0);
-
         match_level(cc, dnm, tmp);
         dnm = cc->EvalMult(dnm, tmp);
         cc->RescaleInPlace(dnm);
-
     }
 
-    { // Rescaling exp_ct to match dnm's level, so we can multiply them together.
-      // TODO: Why the heck do we need to do this iteratively like this? Don't we have
-      // a 'dropToLevel()' or something?
-        uint32_t target = level_of(dnm);
-        int iters = 0;
-        while (level_of(exp_ct) < target) {
-            uint32_t cur = level_of(exp_ct);
-            std::vector<double> ones(S, 1.0);
-            Ptx pt_one2 = cc->MakeCKKSPackedPlaintext(ones, 1, (uint32_t)cur);
-            cc->EvalMultInPlace(exp_ct, pt_one2);
-            cc->RescaleInPlace(exp_ct);
-            ++iters;
-        }
-    }
-
+    reduce_to_level(cc, exp_ct, level_of(dnm), S);
 
     Ctx y = cc->EvalMult(exp_ct, dnm);
     cc->RescaleInPlace(y);
 
-    cc->EvalMultInPlace(y, v);   // algebraically: exp * (1/(v*sum)) * v = exp/sum
+    cc->EvalMultInPlace(y, v);
+    cc->RescaleInPlace(y);
+
+    return y;
+}
+
+/// @brief Numerically-stable softmax: exp(x - max) / sum(exp(x - max)).
+///
+/// 1. If precomputed_max is null, compute max via rotation-reduce using
+///    max(a,b) ≈ (a+b + sign(a-b)*(a-b)) / 2.
+///    Subtracting max makes all exponents ≤ 0.
+///
+/// 2. exp(z) via exp_approx: (1 + z/2^r)^{2^r}.
+///    Since z ≤ 0, the base is in (0,1] and squaring stays bounded.
+///
+/// 3. Sum of exponentials via rotation-reduce, then Goldschmidt inverse
+///    for 1/sum, and multiply to get the final probabilities.
+///
+/// @param precomputed_max  If non-null, skip the max computation (useful when
+///                         max is estimated offline or from a previous layer).
+Ctx softmax(Inference& inf, const Ctx& x_in,
+             int target_level_after_btp,
+             int r, int gs_iters, int seq_dim,
+             const Ctx& precomputed_max) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
+    const int stride = S / seq_dim;
+
+    // ── 1. max(x) via rotation-reduce ──
+    Ctx x_max;
+    if (precomputed_max != nullptr) {
+        x_max = precomputed_max->Clone();
+    } else {
+        x_max = x_in->Clone();
+        for (int gap = stride; gap < S; gap *= 2) {
+            Ctx shifted = cc->EvalRotate(x_max, gap);
+
+            Ctx diff = cc->EvalSub(x_max, shifted);
+            Ctx s    = sign(inf, diff);
+
+            match_level(cc, s, diff);
+            Ctx abs_diff = cc->EvalMult(s, diff);      // |diff| ≈ sign(diff)*diff
+            cc->RescaleInPlace(abs_diff);
+
+            Ctx sum = cc->EvalAdd(x_max, shifted);
+
+            match_level(cc, sum, abs_diff);
+            cc->EvalAddInPlace(sum, abs_diff);          // sum + |diff|
+            cc->EvalMultInPlace(sum, 0.5);              // (sum + |diff|) / 2
+            cc->RescaleInPlace(sum);
+
+            x_max = sum;
+        }
+    }
+
+    // ── 2. x_shifted = x - max(x),  all entries ≤ 0 ──
+    Ctx x_shifted = x_in->Clone();
+    match_level(cc, x_shifted, x_max);
+    cc->EvalSubInPlace(x_shifted, x_max);
+
+    // ── 3. exp(x_shifted) via (1 + z/2^r)^{2^r} ──
+    Ctx exp_ct = exp_approx(cc, x_shifted, r);
+
+    // ── 4. sum(exp) via rotation-reduce ──
+    Ctx exp_sum = exp_ct->Clone();
+    for (int gap = stride; gap < S; gap *= 2) {
+        Ctx tmp = cc->EvalRotate(exp_sum, gap);
+        cc->EvalAddInPlace(exp_sum, tmp);
+    }
+
+    // ── 5. Bootstrap ──
+    exp_ct  = bootstrap_to(inf, exp_ct,  (uint32_t)target_level_after_btp);
+    exp_sum = bootstrap_to(inf, exp_sum, (uint32_t)target_level_after_btp);
+
+    // ── 6. 1 / sum(exp) via Goldschmidt ──
+    double alpha = 1.0 / (double)seq_dim;
+    Ctx inv_init = encrypt_const(cc, alpha, (size_t)S, inf.fhe->pk());
+    match_level(cc, inv_init, exp_sum);
+
+    Ctx inv_sum = goldschmidt_inv(cc, exp_sum, inv_init, gs_iters);
+
+    // ── 7. softmax = exp(x - max) * (1 / sum(exp)) ──
+    match_level(cc, exp_ct, inv_sum);
+    Ctx y = cc->EvalMult(exp_ct, inv_sum);
     cc->RescaleInPlace(y);
 
     return y;
@@ -335,7 +405,7 @@ Ctx argmax(Inference& inf, const Ctx& x_in) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
 
-    Ctx logit = softmax(inf, x_in, 14, 3); // temp > 0 is needed to make the distribution more peaky
+    Ctx logit = softmax_cachemir(inf, x_in, 14, 3); // temp > 0 is needed to make the distribution more peaky
 
     Ctx sum = cc->EvalAdd(logit, 0.0); // TODO: again with copying like so
     for (int j = 1; j < 256; j *= 2) {

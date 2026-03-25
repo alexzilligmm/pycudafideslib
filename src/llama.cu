@@ -119,7 +119,7 @@ Ctx decoder(Inference& llama, const Ctx& x_in) {
 
     Ctx s = qk_transpose(llama, q);
     s = bootstrap_to(llama, s, 12);
-    s = softmax(llama, s, 14, 0);
+    s = softmax_cachemir(llama, s, 14, 0);
 
     Ctx o = attn_v(llama, s);
     o = out_proj(llama, o);

@@ -291,14 +291,111 @@ def solve_model(data, prune):
 
     return placer.solve(prune)
 
+GPT2_N_LAYERS = 12
+
+
+def solve_shortcut_gelu(data, prune):
+    """GELU activation sub-circuit.
+    GELU is piecewise: 3 sign evaluations + 2 polynomial evals + masking.
+    Expects data["GELU"] latency profile in the input data."""
+    placer = Bootplacer("GELU")
+    placer.add_layer("GELU", data["GELU"])
+    placer.add_layer("last_layer", [0] * (max_level + 1))
+
+    return placer.solve(prune)
+
+
+def solve_qk_gpt2(data, prune):
+    """QK^T + Softmax for GPT-2 (no RoPE, no cache rotation)."""
+    print("Solving GPT-2 qk...\n")
+    placer = Bootplacer("QK_GPT2")
+    lat_softmax = solve_softmax(data, prune)
+    # No RoPE — go straight from QKV output to QK^T
+    placer.add_layer("QK_T", data["QK_T"])
+    placer.add_layer("Softmax", lat_softmax)
+    placer.add_layer("last_layer", [0] * (max_level + 1))
+    return placer.solve(prune)
+
+
+def solve_MHA_gpt2(data, prune):
+    """Multi-head attention for GPT-2.
+    Pipeline: Norm -> QKV -> QK^T -> Softmax -> AttnV -> OutProj
+    No RoPE, QKV is a single fused projection (same cost as 3x separate)."""
+    print("Solving GPT-2 MHA...\n")
+    placer = Bootplacer("MHA_GPT2")
+    lat_qk = add_shortcut(solve_qk_gpt2(data, prune))
+    lat_norm = solve_norm(data, prune)
+    placer.add_layer("Norm", lat_norm)
+    placer.add_layer("QKV", [3 * t for t in data["QKV"]])
+    placer.add_layer("QK_to_AttnV", lat_qk)
+    placer.add_layer("AttnV", data["AttnV"])
+    placer.add_layer("O", data["QKV"])
+    placer.add_layer("last_layer", [0] * (max_level + 1))
+
+    return placer.solve(prune)
+
+
+def solve_FFN_gpt2(data, prune):
+    """FFN for GPT-2: Norm -> Up -> GELU -> Down (no gate, no elem_mult)."""
+    print("Solving GPT-2 FFN...\n")
+    placer = Bootplacer("FFN_GPT2")
+    lat_norm = solve_norm(data, prune)
+    lat_gelu = add_shortcut(solve_shortcut_gelu(data, prune))
+    placer.add_layer("Norm", lat_norm)
+    placer.add_layer("Up", data["Up"])
+    placer.add_layer("GELU", lat_gelu)
+    placer.add_layer("Down", data["Down"])
+    placer.add_layer("last_layer", [0] * (max_level + 1))
+
+    return placer.solve(prune)
+
+
+def solve_decoder_gpt2(data, prune):
+    """Single GPT-2 decoder layer: MHA + residual -> FFN + residual."""
+    print("Solving GPT-2 decoder...\n")
+    placer = Bootplacer("Decoder_GPT2")
+    lat_MHA = add_shortcut(solve_MHA_gpt2(data, prune))
+    lat_FFN = add_shortcut(solve_FFN_gpt2(data, prune))
+    if prune:
+        placer.add_layer("MHA", lat_MHA)
+        placer.add_layer("FFN", lat_FFN)
+    else:
+        for i in range(GPT2_N_LAYERS):
+            placer.add_layer("MHA_i", lat_MHA)
+            placer.add_layer("FFN_i", lat_FFN)
+    placer.add_layer("last_layer", [0] * (max_level + 1))
+
+    return placer.solve(prune)
+
+
+def solve_model_gpt2(data, prune):
+    """Full GPT-2 small model (12 decoder layers)."""
+    print("Solving GPT-2 Model...\n")
+    placer = Bootplacer("GPT2_Model", True)
+    lat_decoder = solve_decoder_gpt2(data, prune)
+    if prune:
+        for i in range(GPT2_N_LAYERS):
+            placer.add_layer(f"decoder_{i}", lat_decoder)
+    else:
+        placer.add_layer(f"decoder", lat_decoder)
+    placer.add_layer("last_layer", [0] * (max_level + 1))
+
+    return placer.solve(prune)
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--file", type=str, default="./data.csv")
     parser.add_argument("--prune", type=int, default=1)
+    parser.add_argument("--model", type=str, default="llama",
+                        choices=["llama", "gpt2"],
+                        help="Model architecture to solve bootstrap placement for")
     args = parser.parse_args()
     data = read_data(args.file)
-    solve_model(data, args.prune)
+    if args.model == "gpt2":
+        solve_model_gpt2(data, args.prune)
+    else:
+        solve_model(data, args.prune)
     return
 
 
