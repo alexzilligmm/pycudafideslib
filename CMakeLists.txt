@@ -76,6 +76,7 @@ add_library(cachemir_lib STATIC
     src/linear.cu
     src/nonlinear.cu
     src/llama.cu
+    src/gpt2.cu
 )
 target_include_directories(cachemir_lib PUBLIC include ${_openfhe_incdirs})
 target_link_libraries(cachemir_lib PUBLIC fideslib::fideslib OpenMP::OpenMP_CXX)

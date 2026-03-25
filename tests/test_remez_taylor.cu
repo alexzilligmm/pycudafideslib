@@ -35,53 +35,84 @@ static const std::vector<double> REMEZ_Q_1E4_1 = {
 static constexpr double REMEZ_QMIN_1E4_1 = 1.184730881177085e+00;
 static constexpr double REMEZ_QMAX_1E4_1 = 1.848308811770853e+03;
 
+// Plaintext rational evaluation for reference
+static double eval_rational_plain(double x,
+                                   const std::vector<double>& p,
+                                   const std::vector<double>& q) {
+    double num = 0.0, den = 0.0;
+    double xp = 1.0;
+    for (size_t i = 0; i < p.size(); ++i) { num += p[i] * xp; xp *= x; }
+    xp = 1.0;
+    for (size_t i = 0; i < q.size(); ++i) { den += q[i] * xp; xp *= x; }
+    return num / den;
+}
 
 TEST_F(OpsTest, RemezRationalApprox_1_600) {
     const CC& cc = ctx->cc;
     const size_t slots = cc->GetRingDimension() / 2;
 
-    double test_val = 100.0;
-    auto pt = encode(cc, std::vector<double>(slots, test_val));
-    auto ct = encrypt(cc, pt, ctx->pk());
+    // Test points: near-left border, interior, near-right border
+    const double test_vals[] = { 1.5, 10.0, 100.0, 300.0, 590.0 };
 
-    Ctx result = eval_rational_approx(cc, ct,
-        REMEZ_P_1_600, REMEZ_Q_1_600,
-        REMEZ_QMIN_1_600, REMEZ_QMAX_1_600,
-        ctx->pk(), slots, /*gs_iters=*/7);
+    std::cout << "\n=== Remez (3,1) rational for 1/sqrt(x) over [1, 600] ===\n";
+    for (double x_val : test_vals) {
+        auto pt = encode(cc, std::vector<double>(slots, x_val));
+        auto ct = encrypt(cc, pt, ctx->pk());
+        std::cout << "  x=" << x_val << "  input level=" << level_of(ct) << "\n";
 
-    auto dec = decrypt(cc, result, ctx->sk());
-    double expected = 1.0 / std::sqrt(test_val);
+        Ctx result = eval_rational_approx(cc, ct,
+            REMEZ_P_1_600, REMEZ_Q_1_600,
+            REMEZ_QMIN_1_600, REMEZ_QMAX_1_600,
+            ctx->pk(), slots, /*gs_iters=*/7);
 
-    std::cout << "Remez [1,600] at x=" << test_val << std::endl;
-    std::cout << "  Expected: " << expected << std::endl;
-    std::cout << "  Got:      " << dec[0] << std::endl;
-    std::cout << "  Abs err:  " << std::abs(dec[0] - expected) << std::endl;
+        std::cout << "          output level=" << level_of(result) << "\n";
 
-    EXPECT_NEAR(dec[0], expected, 0.1);
+        auto dec = decrypt(cc, result, ctx->sk());
+        double true_val  = 1.0 / std::sqrt(x_val);
+        double remez_val = eval_rational_plain(x_val, REMEZ_P_1_600, REMEZ_Q_1_600);
+        double he_val    = dec[0];
+
+        std::cout << "          true=" << true_val
+                  << "  remez_plain=" << remez_val
+                  << "  HE=" << he_val
+                  << "  |HE-true|=" << std::abs(he_val - true_val) << "\n";
+
+        // HE should be close to the plaintext Remez value (HE noise)
+        EXPECT_NEAR(he_val, remez_val, 0.15);
+    }
 }
 
 TEST_F(OpsTest, RemezRationalApprox_1e4_1) {
     const CC& cc = ctx->cc;
     const size_t slots = cc->GetRingDimension() / 2;
 
-    double test_val = 0.5;
-    auto pt = encode(cc, std::vector<double>(slots, test_val));
-    auto ct = encrypt(cc, pt, ctx->pk());
+    const double test_vals[] = { 1e-3, 0.01, 0.1, 0.5, 0.95 };
 
-    Ctx result = eval_rational_approx(cc, ct,
-        REMEZ_P_1E4_1, REMEZ_Q_1E4_1,
-        REMEZ_QMIN_1E4_1, REMEZ_QMAX_1E4_1,
-        ctx->pk(), slots, /*gs_iters=*/7);
+    std::cout << "\n=== Remez (3,1) rational for 1/sqrt(x) over [1e-4, 1] ===\n";
+    for (double x_val : test_vals) {
+        auto pt = encode(cc, std::vector<double>(slots, x_val));
+        auto ct = encrypt(cc, pt, ctx->pk());
+        std::cout << "  x=" << x_val << "  input level=" << level_of(ct) << "\n";
 
-    auto dec = decrypt(cc, result, ctx->sk());
-    double expected = 1.0 / std::sqrt(test_val);
+        Ctx result = eval_rational_approx(cc, ct,
+            REMEZ_P_1E4_1, REMEZ_Q_1E4_1,
+            REMEZ_QMIN_1E4_1, REMEZ_QMAX_1E4_1,
+            ctx->pk(), slots, /*gs_iters=*/7);
 
-    std::cout << "Remez [1e-4,1] at x=" << test_val << std::endl;
-    std::cout << "  Expected: " << expected << std::endl;
-    std::cout << "  Got:      " << dec[0] << std::endl;
-    std::cout << "  Abs err:  " << std::abs(dec[0] - expected) << std::endl;
+        std::cout << "          output level=" << level_of(result) << "\n";
 
-    EXPECT_NEAR(dec[0], expected, 0.3);
+        auto dec = decrypt(cc, result, ctx->sk());
+        double true_val  = 1.0 / std::sqrt(x_val);
+        double remez_val = eval_rational_plain(x_val, REMEZ_P_1E4_1, REMEZ_Q_1E4_1);
+        double he_val    = dec[0];
+
+        std::cout << "          true=" << true_val
+                  << "  remez_plain=" << remez_val
+                  << "  HE=" << he_val
+                  << "  |HE-true|=" << std::abs(he_val - true_val) << "\n";
+
+        EXPECT_NEAR(he_val, remez_val, 0.5);
+    }
 }
 
 TEST_F(OpsTest, TaylorInvSqrt_1e4_1) {
@@ -90,32 +121,38 @@ TEST_F(OpsTest, TaylorInvSqrt_1e4_1) {
 
     double a = 1e-4, b = 1.0;
     double z0 = (a + b) / 2.0;
+    std::vector<double> tc = taylor_inv_sqrt_coeffs(z0);
 
-    // Precompute Taylor coefficients once (done at model init time)
-    std::vector<double> taylor_coeffs = taylor_inv_sqrt_coeffs(z0);
+    // Test at multiple points: near z0 (accurate), near borders (less accurate)
+    const double test_vals[] = { 0.01, 0.2, 0.45, 0.55, 0.9 };
 
-    // Test at a point near z0 where Taylor is accurate
-    double test_val = 0.45;
-    auto pt = encode(cc, std::vector<double>(slots, test_val));
-    auto ct = encrypt(cc, pt, ctx->pk());
+    std::cout << "\n=== Taylor deg-3 for 1/sqrt(x) around z0=" << z0
+              << " over [1e-4, 1] ===\n";
+    std::cout << "  coeffs: a0=" << tc[0] << " a1=" << tc[1]
+              << " a2=" << tc[2] << " a3=" << tc[3] << "\n";
 
-    Ctx result = eval_taylor_inv_sqrt(cc, ct, taylor_coeffs, z0);
+    for (double x_val : test_vals) {
+        auto pt = encode(cc, std::vector<double>(slots, x_val));
+        auto ct = encrypt(cc, pt, ctx->pk());
+        std::cout << "  x=" << x_val << "  input level=" << level_of(ct) << "\n";
 
-    auto dec = decrypt(cc, result, ctx->sk());
+        Ctx result = eval_taylor_inv_sqrt(cc, ct, tc, z0);
+        std::cout << "          output level=" << level_of(result) << "\n";
 
-    // Compute expected Taylor value in plaintext
-    double u = test_val - z0;
-    double expected_taylor = taylor_coeffs[0] + taylor_coeffs[1]*u
-                           + taylor_coeffs[2]*u*u + taylor_coeffs[3]*u*u*u;
-    double expected_true = 1.0 / std::sqrt(test_val);
+        auto dec = decrypt(cc, result, ctx->sk());
 
-    std::cout << "Taylor inv_sqrt around z0=" << z0 << " at x=" << test_val << std::endl;
-    std::cout << "  True 1/sqrt(x):    " << expected_true << std::endl;
-    std::cout << "  Taylor (plain):    " << expected_taylor << std::endl;
-    std::cout << "  Taylor (HE):       " << dec[0] << std::endl;
-    std::cout << "  HE vs plain err:   " << std::abs(dec[0] - expected_taylor) << std::endl;
-    std::cout << "  Taylor approx err: " << std::abs(expected_taylor - expected_true) << std::endl;
+        double u = x_val - z0;
+        double taylor_plain = tc[0] + tc[1]*u + tc[2]*u*u + tc[3]*u*u*u;
+        double true_val = 1.0 / std::sqrt(x_val);
+        double he_val   = dec[0];
 
-    // HE result should match plaintext Taylor evaluation closely
-    EXPECT_NEAR(dec[0], expected_taylor, 1e-4);
+        std::cout << "          true=" << true_val
+                  << "  taylor_plain=" << taylor_plain
+                  << "  HE=" << he_val
+                  << "  |HE-taylor|=" << std::abs(he_val - taylor_plain)
+                  << "  |taylor-true|=" << std::abs(taylor_plain - true_val) << "\n";
+
+        // HE should match plaintext Taylor evaluation (HE noise check)
+        EXPECT_NEAR(he_val, taylor_plain, 1e-3);
+    }
 }

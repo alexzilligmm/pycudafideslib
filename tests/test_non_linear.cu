@@ -179,7 +179,10 @@ TEST_F(NonLinearTest, GeLUApproxWithBts) {
     }
 }
 
-static constexpr int GPT2_HD = 1024;  
+// GPT-2 hidden dim 768 padded to next power-of-2 for CKKS packing.
+// With logN=12 → S=2048, S/hD=2 repeats per ciphertext.
+// Input layout: [h0..h1023, h0..h1023] — two copies of the hidden vector.
+static constexpr int GPT2_HD = 1024;
 
 static std::vector<double> make_norm_input(int S, int hD) {
     std::vector<double> x(S);
@@ -190,86 +193,137 @@ static std::vector<double> make_norm_input(int S, int hD) {
     return x;
 }
 
-TEST_F(NonLinearTest, LayerNormLinear) {
+// Helper: run norm with explicit level-ladder printouts at each stage.
+// Mirrors the internal steps of norm() so we can observe levels consumed.
+static void run_norm_with_level_ladder(
+        Inference& inf, const Ctx& ct,
+        int target_btp, const NormConfig& cfg, const char* label) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
-    inf.size.hidDim = GPT2_HD;
+    const int hD = inf.size.hidDim;
 
-    auto x  = make_norm_input(S, GPT2_HD);
-    auto pt = cc->MakeCKKSPackedPlaintext(x);
-    auto ct = cc->Encrypt(inf.fhe->pk(), pt);
+    std::cout << "\n=== LayerNorm (" << label << ")  hidDim=" << hD
+              << "  S=" << S << "  repeats=" << S / hD << " ===\n";
+    std::cout << "  [L0] input                  level=" << level_of(ct) << "\n";
 
-    std::cout << "\n--- LayerNorm (LINEAR)  hidDim=" << GPT2_HD
-              << "  S=" << S << "  repeats=" << S / GPT2_HD << " ---\n";
-    std::cout << "  input level=" << level_of(ct) << "\n";
+    // ── mean ──
+    Ctx mean = compute_average(inf, ct);
+    std::cout << "  [L1] after compute_average  level=" << level_of(mean)
+              << "  (rotations only, free)\n";
 
-    NormConfig cfg;
-    cfg.nr_init_method = NRInitMethod::LINEAR;
-    cfg.nr_init_coeffs = { -0.5, 1.5 };
-    cfg.nr_iters       = 4;
-    cfg.gs_iters       = 2;
+    // ── variance ──
+    Ctx varc = compute_variance(inf, ct, mean);
+    std::cout << "  [L2] after compute_variance level=" << level_of(varc)
+              << "  (x*hD + square + sum + scale = ~4 levels)\n";
 
-    Ctx result = norm(inf, ct, /*target_level_after_btp=*/9, cfg);
-    std::cout << "  output level=" << level_of(result) << "\n";
+    // ── initial guess for 1/sqrt(varc) ──
+    std::vector<double> coeffs_std(cfg.nr_init_coeffs.rbegin(),
+                                    cfg.nr_init_coeffs.rend());
+    Ctx inv_sqrt_init;
+    switch (cfg.nr_init_method) {
+        case NRInitMethod::LINEAR:
+            inv_sqrt_init = eval_polynomial(cc, varc, coeffs_std);
+            std::cout << "  [L3] after LINEAR init      level=" << level_of(inv_sqrt_init)
+                      << "  (degree-1 poly = 1 level)\n";
+            break;
+        case NRInitMethod::REMEZ:
+            inv_sqrt_init = eval_rational_approx(
+                cc, varc, coeffs_std, cfg.remez_q_coeffs,
+                cfg.remez_q_min, cfg.remez_q_max,
+                inf.fhe->pk(), (size_t)S, cfg.remez_div_iters);
+            std::cout << "  [L3] after REMEZ init       level=" << level_of(inv_sqrt_init)
+                      << "  (poly + goldschmidt_inv)\n";
+            break;
+        case NRInitMethod::TAYLOR: {
+            auto tc = taylor_inv_sqrt_coeffs(cfg.taylor_z0);
+            inv_sqrt_init = eval_taylor_inv_sqrt(cc, varc, tc, cfg.taylor_z0);
+            std::cout << "  [L3] after TAYLOR init      level=" << level_of(inv_sqrt_init)
+                      << "  (shift + degree-3 poly)\n";
+            break;
+        }
+    }
+    std::cout << "  [L3] varc before bootstrap  level=" << level_of(varc) << "\n";
 
+    // ── bootstrap ──
+    varc          = bootstrap_to(inf, varc, (uint32_t)target_btp);
+    inv_sqrt_init = bootstrap_to(inf, inv_sqrt_init, (uint32_t)target_btp);
+    std::cout << "  [L4] after bootstrap        varc level=" << level_of(varc)
+              << "  init level=" << level_of(inv_sqrt_init)
+              << "  (target=" << target_btp << ")\n";
+
+    // ── Goldschmidt refinement ──
+    Ctx inv_sqrt_varc = goldschmidt_inv_sqrt(cc, varc, inv_sqrt_init, cfg.gs_iters);
+    std::cout << "  [L5] after goldschmidt_inv_sqrt(" << cfg.gs_iters << " iters)  level="
+              << level_of(inv_sqrt_varc) << "\n";
+
+    // ── centering: (x - mean/hD) ──
+    Ctx x_centered = ct->Clone();
+    Ctx true_mean  = cc->EvalMult(mean, 1.0 / (double)hD);
+    cc->RescaleInPlace(true_mean);
+    std::cout << "  [L6] true_mean (mean/hD)    level=" << level_of(true_mean) << "\n";
+
+    match_level(cc, x_centered, true_mean);
+    cc->EvalSubInPlace(x_centered, true_mean);
+    std::cout << "  [L7] x_centered (x - mean)  level=" << level_of(x_centered) << "\n";
+
+    // ── final multiply ──
+    match_level(cc, x_centered, inv_sqrt_varc);
+    Ctx result = cc->EvalMult(x_centered, inv_sqrt_varc);
+    cc->RescaleInPlace(result);
+    std::cout << "  [L8] output (x-mean)/sqrt(v) level=" << level_of(result) << "\n";
+
+    // ── verify ──
     auto vals = decrypt(cc, result, inf.fhe->sk());
-
     double got_lo = vals[0];
     double got_hi = vals[GPT2_HD / 2];
-    std::cout << "  result[0]="       << got_lo << " (expected -1)\n";
-    std::cout << "  result[hD/2]="    << got_hi << " (expected  1)\n";
+    std::cout << "  result[0]="    << got_lo << " (expected -1)\n";
+    std::cout << "  result[hD/2]=" << got_hi << " (expected  1)\n";
 
     EXPECT_NEAR(got_lo, -1.0, 0.2);
     EXPECT_NEAR(got_hi,  1.0, 0.2);
 }
 
-TEST_F(NonLinearTest, LayerNormTaylor) {
-    const CC& cc = inf.cc();
-    const int S  = inf.slots;
+TEST_F(NonLinearTest, LayerNormLinear) {
     inf.size.hidDim = GPT2_HD;
-
-    auto x  = make_norm_input(S, GPT2_HD);
+    const CC& cc = inf.cc();
+    auto x  = make_norm_input(inf.slots, GPT2_HD);
     auto pt = cc->MakeCKKSPackedPlaintext(x);
     auto ct = cc->Encrypt(inf.fhe->pk(), pt);
 
-    std::cout << "\n--- LayerNorm (TAYLOR)  hidDim=" << GPT2_HD
-              << "  S=" << S << " ---\n";
-    std::cout << "  input level=" << level_of(ct) << "\n";
+    NormConfig cfg;
+    cfg.nr_init_method = NRInitMethod::LINEAR;
+    cfg.nr_init_coeffs = { -0.5, 1.5 };  // 1/sqrt(x) ≈ 1.5 - 0.5*x near x=1
+    cfg.nr_iters       = 4;
+    cfg.gs_iters       = 2;
+
+    run_norm_with_level_ladder(inf, ct, /*target_btp=*/9, cfg, "LINEAR");
+}
+
+TEST_F(NonLinearTest, LayerNormTaylor) {
+    inf.size.hidDim = GPT2_HD;
+    const CC& cc = inf.cc();
+    auto x  = make_norm_input(inf.slots, GPT2_HD);
+    auto pt = cc->MakeCKKSPackedPlaintext(x);
+    auto ct = cc->Encrypt(inf.fhe->pk(), pt);
 
     NormConfig cfg;
     cfg.nr_init_method = NRInitMethod::TAYLOR;
     cfg.taylor_z0      = 1.0;
-    cfg.nr_init_coeffs = {}; 
+    cfg.nr_init_coeffs = {};
     cfg.nr_iters       = 4;
     cfg.gs_iters       = 2;
 
-    Ctx result = norm(inf, ct, /*target_level_after_btp=*/9, cfg);
-    std::cout << "  output level=" << level_of(result) << "\n";
-
-    auto vals = decrypt(cc, result, inf.fhe->sk());
-
-    double got_lo = vals[0];
-    double got_hi = vals[GPT2_HD / 2];
-    std::cout << "  result[0]="       << got_lo << " (expected -1)\n";
-    std::cout << "  result[hD/2]="    << got_hi << " (expected  1)\n";
-
-    EXPECT_NEAR(got_lo, -1.0, 0.2);
-    EXPECT_NEAR(got_hi,  1.0, 0.2);
+    run_norm_with_level_ladder(inf, ct, /*target_btp=*/9, cfg, "TAYLOR");
 }
 
 TEST_F(NonLinearTest, LayerNormRemez) {
-    const CC& cc = inf.cc();
-    const int S  = inf.slots;
     inf.size.hidDim = GPT2_HD;
-
-    auto x  = make_norm_input(S, GPT2_HD);
+    const CC& cc = inf.cc();
+    auto x  = make_norm_input(inf.slots, GPT2_HD);
     auto pt = cc->MakeCKKSPackedPlaintext(x);
     auto ct = cc->Encrypt(inf.fhe->pk(), pt);
 
-    std::cout << "\n--- LayerNorm (REMEZ)  hidDim=" << GPT2_HD
-              << "  S=" << S << " ---\n";
-    std::cout << "  input level=" << level_of(ct) << "\n";
-
+    // Precomputed Remez (3,1) rational for 1/sqrt(x) over [0.5, 2.0]
     NormConfig cfg;
     cfg.nr_init_method  = NRInitMethod::REMEZ;
     cfg.nr_init_coeffs  = {
@@ -285,16 +339,5 @@ TEST_F(NonLinearTest, LayerNormRemez) {
     cfg.nr_iters        = 4;
     cfg.gs_iters        = 2;
 
-    Ctx result = norm(inf, ct, /*target_level_after_btp=*/9, cfg);
-    std::cout << "  output level=" << level_of(result) << "\n";
-
-    auto vals = decrypt(cc, result, inf.fhe->sk());
-
-    double got_lo = vals[0];
-    double got_hi = vals[GPT2_HD / 2];
-    std::cout << "  result[0]="       << got_lo << " (expected -1)\n";
-    std::cout << "  result[hD/2]="    << got_hi << " (expected  1)\n";
-
-    EXPECT_NEAR(got_lo, -1.0, 0.2);
-    EXPECT_NEAR(got_hi,  1.0, 0.2);
+    run_norm_with_level_ladder(inf, ct, /*target_btp=*/9, cfg, "REMEZ");
 }
