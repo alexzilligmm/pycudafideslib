@@ -360,6 +360,7 @@ Ctx softmax(Inference& inf, const Ctx& x_in,
     match_level(cc, x_shifted, x_max);
     cc->EvalSubInPlace(x_shifted, x_max);
 
+    std::cout << "Level of input to exp_approx: " << level_of(x_shifted) << "\n";
     Ctx exp_ct = exp_approx(cc, x_shifted, r);
 
     Ctx exp_sum = exp_ct->Clone();
@@ -367,9 +368,6 @@ Ctx softmax(Inference& inf, const Ctx& x_in,
         Ctx tmp = cc->EvalRotate(exp_sum, gap);
         cc->EvalAddInPlace(exp_sum, tmp);
     }
-
-    exp_ct  = bootstrap_to(inf, exp_ct,  (uint32_t)target_level_after_btp);
-    exp_sum = bootstrap_to(inf, exp_sum, (uint32_t)target_level_after_btp);
 
     double alpha = 1.0 / (double)seq_dim;
     Ctx inv_init = encrypt_const(cc, alpha, (size_t)S, inf.fhe->pk());

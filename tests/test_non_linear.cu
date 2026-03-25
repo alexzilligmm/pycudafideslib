@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "test_non_linear.h"
 #include "nonlinear.h"
+#include <algorithm>
+#include <iomanip>
 #include <cmath>
 #include <vector>
 
@@ -120,6 +122,78 @@ TEST_F(NonLinearTest, GeLUApproxWithBts) {
     }
 }
 
-/// TODO: add test for norm with different config
+TEST_F(NonLinearTest, NormApprox) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
 
-/// TODO: add softmax test 
+    const double raw[]   = { 1.0, 2.0, 3.0, 4.0, 5.0 };
+    const double true_mean = 3.0;
+    const double true_std  = std::sqrt(2.0);
+    double expect[5];
+    for (int j = 0; j < 5; ++j) expect[j] = (raw[j] - true_mean) / true_std;
+
+    std::vector<double> msg(S);
+    for (int i = 0; i < S; ++i) msg[i] = raw[i % 5];
+
+    auto pt = cc->MakeCKKSPackedPlaintext(msg);
+    auto ct = cc->Encrypt(inf.fhe->pk(), pt);
+    std::cout << "Level before norm: " << level_of(ct) << "\n";
+
+    auto out = norm(inf, ct, /*target_level_after_btp=*/14, NORM_ENCLLM_GPT2);
+    std::cout << "Level after  norm: " << level_of(out) << "\n";
+
+    auto res = decrypt(cc, out, inf.fhe->sk());
+
+    for (int j = 0; j < 5; ++j) {
+        double got = res[j]; 
+        std::cout << "  norm(raw[" << j << "]=" << raw[j] << ") = "
+                  << got << "  (expected " << expect[j] << ")\n";
+        EXPECT_NEAR(got, expect[j], 0.1);
+    }
+}
+
+TEST_F(NonLinearTest, SoftmaxWithOracleMax) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;           // 2048
+
+    const int seq_dim    = 4;           // 2 sign calls without oracle → fails;
+    const int stride     = S / seq_dim; // 512   with oracle → free
+    const int r          = 7;
+    const int gs_iters   = 10;
+    const int target_btp = 14;
+
+    const double inp[] = { -2.0, 0.5, 1.5, -0.5 };
+    const double vmax  = *std::max_element(inp, inp + seq_dim);  // 1.5
+    double e[4], esum = 0.0;
+    for (int i = 0; i < seq_dim; ++i) { e[i] = std::exp(inp[i] - vmax); esum += e[i]; }
+    double s[4];
+    for (int i = 0; i < seq_dim; ++i) s[i] = e[i] / esum;
+
+    std::vector<double> msg(S);
+    for (int i = 0; i < seq_dim; ++i)
+        std::fill(msg.begin() + i*stride, msg.begin() + (i+1)*stride, inp[i]);
+    auto pt = cc->MakeCKKSPackedPlaintext(msg);
+    Ctx x_in = cc->Encrypt(inf.fhe->pk(), pt);
+    std::cout << "Encrypt x_in          level=" << level_of(x_in) << "\n";
+
+    Ctx x_max = encrypt_const(cc, vmax, (size_t)S, inf.fhe->pk());
+    std::cout << "Encrypt oracle max    level=" << level_of(x_max)
+              << "  val=" << decrypt(cc, x_max, inf.fhe->sk())[0] << "\n\n";
+
+    Ctx y = softmax(inf, x_in, target_btp, r, gs_iters, seq_dim, x_max);
+    std::cout << "softmax() result      level=" << level_of(y) << "\n";
+
+    auto res = decrypt(cc, y, inf.fhe->sk());
+    std::cout << "  result : [" << res[0]          << ", " << res[stride]
+              << ", "           << res[2*stride]    << ", " << res[3*stride] << "]\n"
+              << "  expect : [" << s[0] << ", " << s[1] << ", " << s[2] << ", " << s[3] << "]\n";
+
+    EXPECT_NEAR(res[0],         s[0], 0.05);
+    EXPECT_NEAR(res[stride],    s[1], 0.05);
+    EXPECT_NEAR(res[2*stride],  s[2], 0.05);
+    EXPECT_NEAR(res[3*stride],  s[3], 0.05);
+
+    double total = res[0] + res[stride] + res[2*stride] + res[3*stride];
+    std::cout << "  sum    : " << total << "  (expected 1.0)\n";
+    EXPECT_NEAR(total, 1.0, 0.05);
+}

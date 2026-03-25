@@ -48,8 +48,8 @@ struct NormConfig {
     double              gs_d_max       = 2.0;
 };
 
-//                                                              method               coeffs          NR  GS
-inline const NormConfig NORM_ENCLLM_GPT2   { NRInitMethod::LINEAR, { -42.1,  7.37 },  4,  2 };
+//                                              method               coeffs          NR  GS
+inline const NormConfig NORM_ENCLLM_GPT2   { NRInitMethod::LINEAR, { -42.1,  7.37 },  4,  10 };
 inline const NormConfig NORM_ENCLLM_LLAMA  { NRInitMethod::LINEAR, { -42.1,  7.37 },  4,  2 }; // calibrate
 inline const NormConfig NORM_CACHEMIR_GPT2 { NRInitMethod::LINEAR, { -42.1,  7.37 },  4,  2 }; // calibrate
 inline const NormConfig NORM_CACHEMIR_LLAMA{ NRInitMethod::LINEAR, { -42.1,  7.37 },  4,  2 }; // calibrate
