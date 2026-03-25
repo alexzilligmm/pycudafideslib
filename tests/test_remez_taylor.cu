@@ -51,7 +51,6 @@ TEST_F(OpsTest, RemezRationalApprox_1_600) {
     const CC& cc = ctx->cc;
     const size_t slots = cc->GetRingDimension() / 2;
 
-    // Test points: near-left border, interior, near-right border
     const double test_vals[] = { 1.5, 10.0, 100.0, 300.0, 590.0 };
 
     std::cout << "\n=== Remez (3,1) rational for 1/sqrt(x) over [1, 600] ===\n";
@@ -63,7 +62,7 @@ TEST_F(OpsTest, RemezRationalApprox_1_600) {
         Ctx result = eval_rational_approx(cc, ct,
             REMEZ_P_1_600, REMEZ_Q_1_600,
             REMEZ_QMIN_1_600, REMEZ_QMAX_1_600,
-            ctx->pk(), slots, /*gs_iters=*/7);
+            ctx->pk(), slots, /*gs_iters=*/10);
 
         std::cout << "          output level=" << level_of(result) << "\n";
 
@@ -77,7 +76,6 @@ TEST_F(OpsTest, RemezRationalApprox_1_600) {
                   << "  HE=" << he_val
                   << "  |HE-true|=" << std::abs(he_val - true_val) << "\n";
 
-        // HE should be close to the plaintext Remez value (HE noise)
         EXPECT_NEAR(he_val, remez_val, 0.15);
     }
 }
@@ -97,7 +95,7 @@ TEST_F(OpsTest, RemezRationalApprox_1e4_1) {
         Ctx result = eval_rational_approx(cc, ct,
             REMEZ_P_1E4_1, REMEZ_Q_1E4_1,
             REMEZ_QMIN_1E4_1, REMEZ_QMAX_1E4_1,
-            ctx->pk(), slots, /*gs_iters=*/7);
+            ctx->pk(), slots, /*gs_iters=*/10);
 
         std::cout << "          output level=" << level_of(result) << "\n";
 
@@ -123,7 +121,6 @@ TEST_F(OpsTest, TaylorInvSqrt_1e4_1) {
     double z0 = (a + b) / 2.0;
     std::vector<double> tc = taylor_inv_sqrt_coeffs(z0);
 
-    // Test at multiple points: near z0 (accurate), near borders (less accurate)
     const double test_vals[] = { 0.01, 0.2, 0.45, 0.55, 0.9 };
 
     std::cout << "\n=== Taylor deg-3 for 1/sqrt(x) around z0=" << z0
@@ -152,7 +149,6 @@ TEST_F(OpsTest, TaylorInvSqrt_1e4_1) {
                   << "  |HE-taylor|=" << std::abs(he_val - taylor_plain)
                   << "  |taylor-true|=" << std::abs(taylor_plain - true_val) << "\n";
 
-        // HE should match plaintext Taylor evaluation (HE noise check)
         EXPECT_NEAR(he_val, taylor_plain, 1e-3);
     }
 }

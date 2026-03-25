@@ -6,6 +6,7 @@
 #   ./run_bench.sh                    # LLaMA ops (default)
 #   ./run_bench.sh --model gpt2      # GPT-2 ops (adds GELU, Up; skips RoPE, SiLU, UpGate)
 #   ./run_bench.sh --logN 16 --hidDim 4096 --ffDim 16384  # custom dimensions
+#   ./run_bench.sh --test-timeout 120 # kill each benchmark test after 120s (0 = disabled)
 #
 # Output:
 #   raw_result.csv   — per-run raw timings
@@ -23,6 +24,7 @@ NUMHEADS=32
 BUILD_DIR="build"
 BINARY="${BUILD_DIR}/bin/cuda_cachemir"
 MAX_LEVEL=16
+TEST_TIMEOUT_SECS="${TEST_TIMEOUT_SECS:-0}"
 
 # ── Parse args ───────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -33,9 +35,28 @@ while [[ $# -gt 0 ]]; do
         --ffDim)    FFDIM="$2";    shift 2 ;;
         --seqLen)   SEQLEN="$2";   shift 2 ;;
         --numHeads) NUMHEADS="$2"; shift 2 ;;
+        --maxLevel) MAX_LEVEL="$2"; shift 2 ;;
+        --test-timeout) TEST_TIMEOUT_SECS="$2"; shift 2 ;;
         --build)    BUILD_DIR="$2"; BINARY="${BUILD_DIR}/bin/cuda_cachemir"; shift 2 ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
+done
+
+# Validate integer-only numeric args early so typos like "3072~" fail fast.
+for kv in \
+    "logN:$LOGN" \
+    "hidDim:$HIDDIM" \
+    "ffDim:$FFDIM" \
+    "seqLen:$SEQLEN" \
+    "numHeads:$NUMHEADS" \
+    "maxLevel:$MAX_LEVEL" \
+    "testTimeoutSecs:$TEST_TIMEOUT_SECS"; do
+    key="${kv%%:*}"
+    val="${kv#*:}"
+    if [[ ! "$val" =~ ^[0-9]+$ ]]; then
+        echo "Invalid value for --$key: '$val' (expected integer)"
+        exit 1
+    fi
 done
 
 COMMON_FLAGS="-logN $LOGN -hidDim $HIDDIM -ffDim $FFDIM -seqLen $SEQLEN -numHeads $NUMHEADS"
@@ -77,11 +98,37 @@ run_test() {
 
     echo "Testing: -test $test_name -level $level $extra_flags"
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    output=$("$BINARY" -test "$test_name" -level "$level" $COMMON_FLAGS $extra_flags 2>&1) || true
+    set +e
+    if command -v timeout >/dev/null 2>&1 && [[ "$TEST_TIMEOUT_SECS" -gt 0 ]]; then
+        output=$(timeout "${TEST_TIMEOUT_SECS}s" "$BINARY" -test "$test_name" -level "$level" $COMMON_FLAGS $extra_flags 2>&1)
+    else
+        output=$("$BINARY" -test "$test_name" -level "$level" $COMMON_FLAGS $extra_flags 2>&1)
+    fi
     exit_status=$?
-    sanitized_output=$(echo "$output" | grep -oP 'Consumed\s+\K[0-9.]+(?=\s+seconds)' | tr '\n' ' ' | sed 's/[[:space:]]*$//' || echo "N/A")
+    set -e
+    sanitized_output=$(echo "$output" | grep -oP 'Consumed\s+\K[0-9.]+(?=\s+seconds)' | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)
+    if [[ -z "$sanitized_output" ]]; then
+        sanitized_output="N/A"
+    fi
+
+    error_hint=""
+    if [[ "$exit_status" -ne 0 || "$sanitized_output" == "N/A" ]]; then
+        error_hint=$(echo "$output" | awk '
+            /what\(\):/ { print; exit }
+            /terminate called/ { print; exit }
+            /Invalid|Unknown|Exception|error|Error/ { print; exit }
+        ')
+        if [[ -z "$error_hint" ]]; then
+            error_hint=$(echo "$output" | head -n 1)
+        fi
+    fi
+
     echo "$timestamp,$exit_status,$csv_name,$level,$sanitized_output" >> "$output_file"
-    echo "  -> $sanitized_output"
+    if [[ -n "$error_hint" ]]; then
+        echo "  -> $sanitized_output (exit=$exit_status; ${error_hint})"
+    else
+        echo "  -> $sanitized_output"
+    fi
 }
 
 # ── 1. Basic operations: sweep level 1..16 ───────────────────────────────
