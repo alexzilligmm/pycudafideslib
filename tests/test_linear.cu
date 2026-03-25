@@ -32,7 +32,8 @@ static std::vector<double> mul_vec(const std::vector<double>& a,
     return out;
 }
 
-// Plaintext replica of linear() — same algorithm, operates on double vectors.
+// Plaintext replica of linear() — same algorithm, on double vectors.
+// This is the source-of-truth reference (mirrors the Go code structure).
 static std::vector<double> linear_plain(
         const std::vector<double>& x_in,
         const std::vector<std::vector<double>>& weights,
@@ -52,45 +53,84 @@ static std::vector<double> linear_plain(
     int intRot = S / hidDim;
     int n_weights = (int)weights.size();
 
+    // pre-processing: replicate across blocks
     auto xb = x_in;
     for (int step = preStep; step < S; step *= 2)
         xb = add_vec(xb, rotate_vec(xb, step));
 
+    // baby-step rotations
     std::vector<std::vector<double>> ctRot(inRot);
     ctRot[0] = xb;
     for (int i = 1; i < inRot; ++i)
         ctRot[i] = rotate_vec(ctRot[i - 1], intRot);
 
+    // plaintext multiplications
     std::vector<std::vector<double>> partSum(n_weights);
     for (int i = 0; i < n_weights; ++i)
         partSum[i] = mul_vec(ctRot[i % inRot], weights[i]);
 
+    // baby-step accumulation
     for (int i = 0; i < n_weights; ++i) {
         if (i % inRot > 0)
             partSum[i - i % inRot] = add_vec(partSum[i - i % inRot], partSum[i]);
     }
 
+    // giant-step rotations
     for (int i = 1; i < outRot; ++i)
         partSum[i * inRot] = rotate_vec(partSum[i * inRot], i * inRot * intRot);
 
+    // giant-step accumulation
     auto result = partSum[0];
     for (int i = 1; i < outRot; ++i)
         result = add_vec(result, partSum[i * inRot]);
 
+    // post-processing: replicate across blocks
     for (int step = postStep; step < S; step *= 2)
         result = add_vec(result, rotate_vec(result, step));
 
     return result;
 }
 
-// ── Test fixture with rotation keys for linear layer ─────────────────────
-// The default context only has power-of-2 rotation keys.
-// linear() needs giant-step rotations at i*inRot*intRot which may not be
-// powers of 2 (e.g. 96, 160, 192, 224 for hidDim=256, S=2048).
-// We compute and register all needed keys.
+// ── Test fixture ─────────────────────────────────────────────────────────
+// Collects all rotation indices needed by linear() and passes them
+// to make_ckks_context via extra_rot_steps (before LoadContext).
 
 static constexpr int HD = 256;
 static constexpr int FD = 1024;
+
+static std::vector<int32_t> collect_linear_rot_indices(int hidDim, int ffDim, int S) {
+    std::vector<int32_t> rots;
+
+    auto add = [&](int hD, int fD, int expand) {
+        int inR, outR;
+        if (expand == 0) {
+            inR  = (int)std::sqrt((double)(hD * hD) / (2 * S));
+            outR = hD * hD / (S * inR);
+        } else {
+            inR  = (int)std::sqrt((double)(hD * fD) / (2 * S));
+            outR = hD * fD / (S * inR);
+        }
+        int iR = S / hD;
+        // baby-step rotations
+        for (int i = 1; i < inR; ++i) rots.push_back(i * iR);
+        // giant-step rotations
+        for (int i = 1; i < outR; ++i) rots.push_back(i * inR * iR);
+        // pre/post processing
+        int preStep  = (expand >= 0) ? hD : fD;
+        int postStep = (expand <= 0) ? hD : fD;
+        for (int step = preStep; step < S; step *= 2) rots.push_back(step);
+        for (int step = postStep; step < S; step *= 2) rots.push_back(step);
+    };
+
+    add(hidDim, ffDim, 0);   // hid->hid
+    add(hidDim, ffDim, 1);   // hid->ff
+    add(hidDim, ffDim, -1);  // ff->hid
+
+    // deduplicate
+    std::sort(rots.begin(), rots.end());
+    rots.erase(std::unique(rots.begin(), rots.end()), rots.end());
+    return rots;
+}
 
 class LinearTest : public ::testing::Test {
 protected:
@@ -101,71 +141,23 @@ protected:
 
     void SetUp() override {
         const int S = 1 << (LOG_N - 1);
-
-        // Collect all rotation indices needed by linear() for our dimensions
-        int intRot = S / HD;
-        auto add_linear_rots = [&](std::vector<int32_t>& rots, int hD, int fD, int expand) {
-            int inR, outR;
-            if (expand == 0) {
-                inR  = (int)std::sqrt((double)(hD * hD) / (2 * S));
-                outR = hD * hD / (S * inR);
-            } else {
-                inR  = (int)std::sqrt((double)(hD * fD) / (2 * S));
-                outR = hD * fD / (S * inR);
-            }
-            int iR = S / hD;
-            // baby-step: multiples of intRot
-            for (int i = 1; i < inR; ++i) rots.push_back(iR);
-            // giant-step: i * inRot * intRot
-            for (int i = 1; i < outR; ++i) rots.push_back(i * inR * iR);
-            // pre/post: powers of 2 from preStep
-            int preStep  = (expand >= 0) ? hD : fD;
-            int postStep = (expand <= 0) ? hD : fD;
-            for (int step = preStep; step < S; step *= 2) rots.push_back(step);
-            for (int step = postStep; step < S; step *= 2) rots.push_back(step);
-        };
-
-        std::vector<int32_t> extra_rots;
-        add_linear_rots(extra_rots, HD, FD, 0);   // hid->hid
-        add_linear_rots(extra_rots, HD, FD, 1);   // hid->ff
-        add_linear_rots(extra_rots, HD, FD, -1);  // ff->hid
-
-        // Deduplicate (make_ckks_context adds power-of-2 keys, we add extras)
-        // We pass a custom rotation list via the wrapper
-        // But make_ckks_context hardcodes its own rotation keys.
-        // So we need to use the raw OpenFHE API to add more keys.
-        // Simplest: create context, then add extra rotation keys.
+        auto extra_rots = collect_linear_rot_indices(HD, FD, S);
 
         ctx = make_ckks_context(
             LOG_N,
             /*depth=*/16,
             /*scale_bits=*/40,
             /*bootstrap_slots=*/0,
-            /*enable_bootstrap=*/false,  // skip bootstrap to keep context small
+            /*enable_bootstrap=*/false,
             /*btp_scale_bits=*/59,
             /*first_mod_bits=*/60,
-            /*level_budget_in=*/{3, 3},
+            /*level_budget_in=*/{},
             /*batch_size=*/0,
             /*h_weight=*/192,
             /*num_large_digits=*/3,
-            /*btp_depth_overhead=*/0
+            /*btp_depth_overhead=*/0,
+            /*extra_rot_steps=*/extra_rots
         );
-
-        // Add extra rotation keys for linear layer
-        // make_ckks_context already generated power-of-2 keys.
-        // We need to add the non-power-of-2 giant-step keys.
-        std::sort(extra_rots.begin(), extra_rots.end());
-        extra_rots.erase(std::unique(extra_rots.begin(), extra_rots.end()), extra_rots.end());
-        // Filter to keys not already generated (non-power-of-2)
-        std::vector<int32_t> new_rots;
-        for (auto r : extra_rots) {
-            if (r > 0 && (r & (r - 1)) != 0) // not a power of 2
-                new_rots.push_back(r);
-        }
-        if (!new_rots.empty()) {
-            ctx->cc->EvalRotateKeyGen(ctx->keys.secretKey, new_rots);
-            ctx->cc->LoadContext(ctx->keys.publicKey);
-        }
 
         inf.fhe    = ctx;
         inf.slots  = S;
@@ -177,7 +169,7 @@ protected:
         std::cout << "--- LINEAR TEST CONTEXT ---\n"
                   << "N=" << (1 << LOG_N) << " S=" << S
                   << " hidDim=" << HD << " ffDim=" << FD
-                  << " extra_rot_keys=" << new_rots.size() << "\n";
+                  << " extra_rot_keys=" << extra_rots.size() << "\n";
     }
 };
 
@@ -188,15 +180,8 @@ TEST_F(LinearTest, HidToHid_PlaintextMatch) {
     const int S  = inf.slots;
     const int n_weights = HD * HD / S;
 
-    int inRot  = (int)std::sqrt((double)(HD * HD) / (2 * S));
-    int outRot = HD * HD / (S * inRot);
-    int intRot = S / HD;
+    std::cout << "\n=== Linear hid->hid: n_weights=" << n_weights << " ===\n";
 
-    std::cout << "\n=== Linear hid->hid: n_weights=" << n_weights
-              << " inRot=" << inRot << " outRot=" << outRot
-              << " intRot=" << intRot << " ===\n";
-
-    // Deterministic small-magnitude input and weights
     std::mt19937 rng(42);
     std::uniform_real_distribution<double> dist(-0.1, 0.1);
 
@@ -211,10 +196,8 @@ TEST_F(LinearTest, HidToHid_PlaintextMatch) {
         inf.w["q"].push_back(cc->MakeCKKSPackedPlaintext(w_plain[i]));
     }
 
-    // Plaintext reference
     auto expected = linear_plain(x_plain, w_plain, HD, FD, S, 0);
 
-    // HE
     auto pt = cc->MakeCKKSPackedPlaintext(x_plain);
     auto ct = cc->Encrypt(ctx->pk(), pt);
     std::cout << "  input level=" << level_of(ct) << "\n";
@@ -267,7 +250,6 @@ TEST_F(LinearTest, SlotMasking) {
             inf.w["q"].push_back(cc->MakeCKKSPackedPlaintext(
                 std::vector<double>(S, 0.0)));
 
-        // Plaintext simulation with zero-padded weights
         std::vector<std::vector<double>> w_plain(n_weights, std::vector<double>(S, 0.0));
         w_plain[0] = w0;
         auto expected = linear_plain(x_in, w_plain, HD, FD, S, 0);
@@ -296,7 +278,6 @@ TEST_F(LinearTest, SlotMasking) {
             inf.w["q"].push_back(cc->MakeCKKSPackedPlaintext(
                 std::vector<double>(S, 0.0)));
 
-        // Plaintext simulation with naive weights
         std::vector<std::vector<double>> w_naive(n_weights, std::vector<double>(S, 0.0));
         w_naive[0] = std::vector<double>(S, 1.0);
         auto expected_naive = linear_plain(x_in, w_naive, HD, FD, S, 0);
@@ -317,7 +298,7 @@ TEST_F(LinearTest, SlotMasking) {
                   << " HE=" << dec_naive[0]
                   << " true_x=" << x_in[0] << "\n";
         std::cout << "    corruption: |result - true| = "
-                  << std::abs(dec_naive[0] - x_in[0]) << "\n";
+                  << std::abs(expected_naive[0] - x_in[0]) << "\n";
 
         // HE matches naive plaintext sim
         EXPECT_LT(max_err_naive, 1.0);

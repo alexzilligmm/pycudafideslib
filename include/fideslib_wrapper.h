@@ -50,7 +50,8 @@ make_ckks_context(int logN                          = 12,
                                                             // NOTE: OpenFHE does not enforce exact H —
                                                             // SPARSE_TERNARY is the closest approximation
                   uint32_t num_large_digits         = 3,    // #P primes for hybrid key-switch (Go LogP.size())
-                  uint32_t btp_depth_overhead       = 9)    // extra levels reserved for EvalBootstrap
+                  uint32_t btp_depth_overhead       = 9,    // extra levels reserved for EvalBootstrap
+                  std::vector<int32_t> extra_rot_steps = {}) // additional rotation keys (e.g. for linear layer)
 {
     CCParams<CryptoContextCKKSRNS> params;
 
@@ -102,6 +103,7 @@ make_ckks_context(int logN                          = 12,
     }
     rot_steps.push_back(5);
     rot_steps.push_back(-5);
+    for (auto r : extra_rot_steps) rot_steps.push_back(r);
     std::sort(rot_steps.begin(), rot_steps.end());
     rot_steps.erase(std::unique(rot_steps.begin(), rot_steps.end()), rot_steps.end());
     cc->EvalRotateKeyGen(kp.secretKey, rot_steps);
