@@ -37,13 +37,21 @@ inline constexpr GeluConfig GELU_HEAWARE_GPT2  { 1.0 / 4.0 }; // calibrate
 //
 // Both methods evaluate identically at runtime via eval_polynomial(cc, varc, coeffs).
 
-enum class NRInitMethod { LINEAR, REMEZ };
+enum class NRInitMethod { LINEAR, REMEZ, TAYLOR };
 
 struct NormConfig {
     NRInitMethod        nr_init_method = NRInitMethod::LINEAR;
     std::vector<double> nr_init_coeffs = { -42.1, 7.37 }; // highest-degree first
     int                 nr_iters       = 4;
     int                 gs_iters       = 2;
+    // Remez rational approximation (used when nr_init_method == REMEZ)
+    // nr_init_coeffs stores numerator p_coeffs (highest-degree first)
+    std::vector<double> remez_q_coeffs = {};  // denominator coeffs, lowest-degree first, q[0]=1
+    double              remez_q_min    = 1.0;
+    double              remez_q_max    = 1.0;
+    int                 remez_div_iters = 5;  // Goldschmidt iters for 1/q(x) in rational eval
+    // Taylor expansion (used when nr_init_method == TAYLOR)
+    double              taylor_z0      = 0.5; // expansion point (midpoint of variance range)
 };
 
 //                                                              method               coeffs          NR  GS

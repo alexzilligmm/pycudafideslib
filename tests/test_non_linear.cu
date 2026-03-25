@@ -179,6 +179,122 @@ TEST_F(NonLinearTest, GeLUApproxWithBts) {
     }
 }
 
-TEST_F(NonLinearTest, LayerNormApprox) {
+static constexpr int GPT2_HD = 1024;  
 
+static std::vector<double> make_norm_input(int S, int hD) {
+    std::vector<double> x(S);
+    for (int i = 0; i < S; ++i) {
+        int pos = i % hD;
+        x[i] = (pos < hD / 2) ? 0.0 : 2.0;
+    }
+    return x;
+}
+
+TEST_F(NonLinearTest, LayerNormLinear) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
+    inf.size.hidDim = GPT2_HD;
+
+    auto x  = make_norm_input(S, GPT2_HD);
+    auto pt = cc->MakeCKKSPackedPlaintext(x);
+    auto ct = cc->Encrypt(inf.fhe->pk(), pt);
+
+    std::cout << "\n--- LayerNorm (LINEAR)  hidDim=" << GPT2_HD
+              << "  S=" << S << "  repeats=" << S / GPT2_HD << " ---\n";
+    std::cout << "  input level=" << level_of(ct) << "\n";
+
+    NormConfig cfg;
+    cfg.nr_init_method = NRInitMethod::LINEAR;
+    cfg.nr_init_coeffs = { -0.5, 1.5 };
+    cfg.nr_iters       = 4;
+    cfg.gs_iters       = 2;
+
+    Ctx result = norm(inf, ct, /*target_level_after_btp=*/9, cfg);
+    std::cout << "  output level=" << level_of(result) << "\n";
+
+    auto vals = decrypt(cc, result, inf.fhe->sk());
+
+    double got_lo = vals[0];
+    double got_hi = vals[GPT2_HD / 2];
+    std::cout << "  result[0]="       << got_lo << " (expected -1)\n";
+    std::cout << "  result[hD/2]="    << got_hi << " (expected  1)\n";
+
+    EXPECT_NEAR(got_lo, -1.0, 0.2);
+    EXPECT_NEAR(got_hi,  1.0, 0.2);
+}
+
+TEST_F(NonLinearTest, LayerNormTaylor) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
+    inf.size.hidDim = GPT2_HD;
+
+    auto x  = make_norm_input(S, GPT2_HD);
+    auto pt = cc->MakeCKKSPackedPlaintext(x);
+    auto ct = cc->Encrypt(inf.fhe->pk(), pt);
+
+    std::cout << "\n--- LayerNorm (TAYLOR)  hidDim=" << GPT2_HD
+              << "  S=" << S << " ---\n";
+    std::cout << "  input level=" << level_of(ct) << "\n";
+
+    NormConfig cfg;
+    cfg.nr_init_method = NRInitMethod::TAYLOR;
+    cfg.taylor_z0      = 1.0;
+    cfg.nr_init_coeffs = {}; 
+    cfg.nr_iters       = 4;
+    cfg.gs_iters       = 2;
+
+    Ctx result = norm(inf, ct, /*target_level_after_btp=*/9, cfg);
+    std::cout << "  output level=" << level_of(result) << "\n";
+
+    auto vals = decrypt(cc, result, inf.fhe->sk());
+
+    double got_lo = vals[0];
+    double got_hi = vals[GPT2_HD / 2];
+    std::cout << "  result[0]="       << got_lo << " (expected -1)\n";
+    std::cout << "  result[hD/2]="    << got_hi << " (expected  1)\n";
+
+    EXPECT_NEAR(got_lo, -1.0, 0.2);
+    EXPECT_NEAR(got_hi,  1.0, 0.2);
+}
+
+TEST_F(NonLinearTest, LayerNormRemez) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
+    inf.size.hidDim = GPT2_HD;
+
+    auto x  = make_norm_input(S, GPT2_HD);
+    auto pt = cc->MakeCKKSPackedPlaintext(x);
+    auto ct = cc->Encrypt(inf.fhe->pk(), pt);
+
+    std::cout << "\n--- LayerNorm (REMEZ)  hidDim=" << GPT2_HD
+              << "  S=" << S << " ---\n";
+    std::cout << "  input level=" << level_of(ct) << "\n";
+
+    NormConfig cfg;
+    cfg.nr_init_method  = NRInitMethod::REMEZ;
+    cfg.nr_init_coeffs  = {
+        1.069785284789309e-01,
+       -8.418900522536490e-01,
+        4.471840402707294e+00,
+        4.474085956084137e+00
+    };
+    cfg.remez_q_coeffs  = { 1.0, 7.211233906909211e+00 };
+    cfg.remez_q_min     = 4.605616953454605e+00;
+    cfg.remez_q_max     = 1.542246781381842e+01;
+    cfg.remez_div_iters = 5;
+    cfg.nr_iters        = 4;
+    cfg.gs_iters        = 2;
+
+    Ctx result = norm(inf, ct, /*target_level_after_btp=*/9, cfg);
+    std::cout << "  output level=" << level_of(result) << "\n";
+
+    auto vals = decrypt(cc, result, inf.fhe->sk());
+
+    double got_lo = vals[0];
+    double got_hi = vals[GPT2_HD / 2];
+    std::cout << "  result[0]="       << got_lo << " (expected -1)\n";
+    std::cout << "  result[hD/2]="    << got_hi << " (expected  1)\n";
+
+    EXPECT_NEAR(got_lo, -1.0, 0.2);
+    EXPECT_NEAR(got_hi,  1.0, 0.2);
 }

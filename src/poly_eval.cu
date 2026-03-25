@@ -295,3 +295,55 @@ Ctx eval_polynomial_deg4(const CC& cc, const Ctx& x, const std::vector<double>& 
 
     return cc->EvalAdd(A, result);
 }
+
+/// @brief Evaluates a rational approximation p(x)/q(x) on a ciphertext.
+/// Uses eval_polynomial for numerator/denominator and Goldschmidt iteration for division.
+/// @param p_coeffs, numerator polynomial coefficients [p0, p1, ..., pn] (precomputed offline)
+/// @param q_coeffs, denominator polynomial coefficients [q0, q1, ..., qm] with q0 = 1.0 (precomputed offline)
+/// @param q_min, minimum value of q(x) over the input domain (precomputed offline)
+/// @param q_max, maximum value of q(x) over the input domain (precomputed offline)
+/// @param gs_iters, number of Goldschmidt iterations for computing 1/q(x)
+Ctx eval_rational_approx(const CC& cc, const Ctx& x,
+                          const std::vector<double>& p_coeffs,
+                          const std::vector<double>& q_coeffs,
+                          double q_min, double q_max,
+                          const PublicKey<DCRTPoly>& pk,
+                          size_t slots,
+                          int gs_iters) {
+    Ctx p_ct = eval_polynomial(cc, x, p_coeffs);
+    Ctx q_ct = eval_polynomial(cc, x, q_coeffs);
+
+    double alpha = 2.0 / (q_min + q_max);
+    Ctx x0 = encrypt_const(cc, alpha, slots, pk);
+
+    Ctx inv_q = goldschmidt_inv(cc, q_ct, x0, gs_iters);
+
+    match_level(cc, p_ct, inv_q);
+    Ctx result = cc->EvalMult(p_ct, inv_q);
+    eval_rescale(cc, result);
+
+    return result;
+}
+
+/// @brief Computes the degree-3 Taylor coefficients of 1/sqrt(z) centered at z0.
+/// Call once during initialization; pass the result to eval_taylor_inv_sqrt at runtime.
+/// Returns coefficients in the shifted basis: f(z) ≈ a0 + a1*(z-z0) + a2*(z-z0)^2 + a3*(z-z0)^3
+/// @param z0, the expansion point (typically midpoint of the interval)
+/// @return vector {a0, a1, a2, a3}
+std::vector<double> taylor_inv_sqrt_coeffs(double z0) {
+    double z0_sqrt = std::sqrt(z0);
+    double a0 =  1.0 / z0_sqrt;
+    double a1 = -1.0 / (2.0 * z0 * z0_sqrt);
+    double a2 =  3.0 / (8.0 * z0 * z0 * z0_sqrt);
+    double a3 = -5.0 / (16.0 * z0 * z0 * z0 * z0_sqrt);
+    return {a0, a1, a2, a3};
+}
+
+/// @brief Evaluates the degree-3 Taylor approximation of 1/sqrt(z) around z0.
+/// @param coeffs, precomputed Taylor coefficients from taylor_inv_sqrt_coeffs (computed once at init)
+/// @param z0, the expansion point used when computing coeffs
+Ctx eval_taylor_inv_sqrt(const CC& cc, const Ctx& x,
+                          const std::vector<double>& coeffs, double z0) {
+    Ctx u = cc->EvalAdd(x, -z0);
+    return eval_polynomial(cc, u, coeffs);
+}

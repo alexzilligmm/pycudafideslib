@@ -190,9 +190,57 @@ Ctx gelu(Inference& inf, const Ctx& x_in, const GeluConfig& cfg) {
     return term0;
 }
 
-/// @brief LayerNorm approx as in Encrypted LLM
-Ctx norm(Inference& inf, const Ctx& x_in) {
-    
+/// @brief LayerNorm: (x - mean) * 1/sqrt(variance).
+/// Initial 1/sqrt guess is computed via LINEAR, REMEZ, or TAYLOR (set in cfg),
+/// then refined with Goldschmidt iterations.
+Ctx norm(Inference& inf, const Ctx& x_in,
+         int target_level_after_btp, const NormConfig& cfg) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
+    const int hD = inf.size.hidDim;
+
+    Ctx mean = compute_average(inf, x_in);
+    Ctx varc = compute_variance(inf, x_in, mean);
+
+    std::vector<double> coeffs_std(cfg.nr_init_coeffs.rbegin(), cfg.nr_init_coeffs.rend());
+
+    Ctx inv_sqrt_init;
+    switch (cfg.nr_init_method) {
+        case NRInitMethod::LINEAR:
+            inv_sqrt_init = eval_polynomial(cc, varc, coeffs_std);
+            break;
+
+        case NRInitMethod::REMEZ:
+            inv_sqrt_init = eval_rational_approx(
+                cc, varc, coeffs_std, cfg.remez_q_coeffs,
+                cfg.remez_q_min, cfg.remez_q_max,
+                inf.fhe->pk(), (size_t)S, cfg.remez_div_iters);
+            break;
+
+        case NRInitMethod::TAYLOR: {
+            std::vector<double> taylor_c = taylor_inv_sqrt_coeffs(cfg.taylor_z0);
+            inv_sqrt_init = eval_taylor_inv_sqrt(cc, varc, taylor_c, cfg.taylor_z0);
+            break;
+        }
+    }
+
+    varc          = bootstrap_to(inf, varc, (uint32_t)target_level_after_btp);
+    inv_sqrt_init = bootstrap_to(inf, inv_sqrt_init, (uint32_t)target_level_after_btp);
+
+    Ctx inv_sqrt_varc = goldschmidt_inv_sqrt(cc, varc, inv_sqrt_init, cfg.gs_iters);
+
+    Ctx x_centered = x_in->Clone();
+    Ctx true_mean  = cc->EvalMult(mean, 1.0 / (double)hD);
+    cc->RescaleInPlace(true_mean);
+
+    match_level(cc, x_centered, true_mean);
+    cc->EvalSubInPlace(x_centered, true_mean);
+
+    match_level(cc, x_centered, inv_sqrt_varc);
+    Ctx result = cc->EvalMult(x_centered, inv_sqrt_varc);
+    cc->RescaleInPlace(result);
+
+    return result;
 }
 
 /// @brief Softmax in the Cachemir's implementation

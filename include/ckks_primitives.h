@@ -53,6 +53,19 @@ Ctx eval_polynomial_computational_ps(const CC& cc,
 
 Ctx eval_polynomial_deg4(const CC& cc, const Ctx& x, const std::vector<double>& coeffs);
 
+Ctx eval_rational_approx(const CC& cc, const Ctx& x,
+                          const std::vector<double>& p_coeffs,
+                          const std::vector<double>& q_coeffs,
+                          double q_min, double q_max,
+                          const PublicKey<DCRTPoly>& pk,
+                          size_t slots,
+                          int gs_iters);
+
+std::vector<double> taylor_inv_sqrt_coeffs(double z0);
+
+Ctx eval_taylor_inv_sqrt(const CC& cc, const Ctx& x,
+                          const std::vector<double>& coeffs, double z0);
+
 Ctx eval_linear_wsum(const CC& cc,
                      std::vector<Ctx>& cts,
                      const std::vector<double>& weights);
