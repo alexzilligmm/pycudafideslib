@@ -178,3 +178,7 @@ TEST_F(NonLinearTest, GeLUApproxWithBts) {
         EXPECT_NEAR(got, expect[t], 0.15);
     }
 }
+
+TEST_F(NonLinearTest, LayerNormApprox) {
+
+}

@@ -1,5 +1,6 @@
 #pragma once
 #include "fideslib_wrapper.h"
+#include "inference.h"
 #include <functional>
 
 struct CKKSFHECtx {
@@ -55,3 +56,11 @@ Ctx eval_polynomial_deg4(const CC& cc, const Ctx& x, const std::vector<double>& 
 Ctx eval_linear_wsum(const CC& cc,
                      std::vector<Ctx>& cts,
                      const std::vector<double>& weights);
+
+Ctx compute_average(Inference& inf, const Ctx& x_in);
+
+/// Computes variance, deriving the mean internally.
+Ctx compute_variance(Inference& inf, const Ctx& x_in);
+
+/// Computes variance given a precomputed mean (as returned by compute_average).
+Ctx compute_variance(Inference& inf, const Ctx& x_in, Ctx mean);

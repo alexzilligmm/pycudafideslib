@@ -71,6 +71,72 @@ TEST_F(OpsTest, NewtonRaphsonInv) {
     std::cout << "Verified Inv Value: " << result[0] << " (expected: " << expected << ")\n";
 }
 
+TEST_F(OpsTest, ComputeAverage_Constant) {
+    const CC& cc = ctx->cc;
+    const size_t slots = cc->GetRingDimension() / 2;
+
+    Inference inf;
+    inf.fhe    = ctx;
+    inf.slots  = (int)slots;
+    inf.size.hidDim = 256; 
+
+    const double c = 5.0;
+    auto pt = encode(cc, std::vector<double>(slots, c));
+    auto ct = encrypt(cc, pt, ctx->pk());
+
+    Ctx result = compute_average(inf, ct);
+    auto vals  = decrypt(cc, result, ctx->sk());
+
+    double expected = 256.0 * c;
+    EXPECT_NEAR(vals[0], expected, 1e-2);
+    std::cout << "ComputeAverage (constant) result[0]=" << vals[0]
+              << " expected=" << expected << "\n";
+}
+
+TEST_F(OpsTest, ComputeVariance_Constant) {
+    const CC& cc = ctx->cc;
+    const size_t slots = cc->GetRingDimension() / 2;
+
+    Inference inf;
+    inf.fhe    = ctx;
+    inf.slots  = (int)slots;
+    inf.size.hidDim = 256;
+
+    const double c = 5.0;
+    auto pt = encode(cc, std::vector<double>(slots, c));
+    auto ct = encrypt(cc, pt, ctx->pk());
+
+    Ctx result = compute_variance(inf, ct);
+    auto vals  = decrypt(cc, result, ctx->sk());
+
+    EXPECT_NEAR(vals[0], 0.0, 1e-2);
+    std::cout << "ComputeVariance (constant) result[0]=" << vals[0] << "\n";
+}
+
+TEST_F(OpsTest, ComputeVariance_TwoValue) {
+    const CC& cc = ctx->cc;
+    const size_t slots = cc->GetRingDimension() / 2; // 2048
+
+    Inference inf;
+    inf.fhe    = ctx;
+    inf.slots  = (int)slots;
+    inf.size.hidDim = 256; 
+
+    std::vector<double> x(slots);
+    for (size_t i = 0; i < slots; ++i)
+        x[i] = (i < slots / 2) ? 0.0 : 2.0;
+
+    auto pt = encode(cc, x);
+    auto ct = encrypt(cc, pt, ctx->pk());
+
+    Ctx result = compute_variance(inf, ct);
+    auto vals  = decrypt(cc, result, ctx->sk());
+
+    EXPECT_NEAR(vals[0], 1.0, 1e-2);
+    std::cout << "ComputeVariance (two-value) result[0]=" << vals[0]
+              << " expected=1.0\n";
+}
+
 TEST_F(OpsTest, GoldschmidtInv) {
     const CC& cc = ctx->cc;
     const size_t slots = cc->GetRingDimension() / 2;
