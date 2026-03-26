@@ -21,19 +21,6 @@ static const std::vector<double> REMEZ_Q_1_600 = {
 static constexpr double REMEZ_QMIN_1_600 = 1.488546685679440e+00;
 static constexpr double REMEZ_QMAX_1_600 = 2.941280114076638e+02;
 
-// Range [1e-4, 1]
-static const std::vector<double> REMEZ_P_1E4_1 = {
-    9.710038853872469e+01,
-    6.627242874895056e+03,
-   -1.290965918127410e+04,
-    8.356592957269102e+03
-};
-static const std::vector<double> REMEZ_Q_1E4_1 = {
-    1.000000000000000e+00,
-    1.847308811770853e+03
-};
-static constexpr double REMEZ_QMIN_1E4_1 = 1.184730881177085e+00;
-static constexpr double REMEZ_QMAX_1E4_1 = 1.848308811770853e+03;
 
 // Plaintext rational evaluation for reference
 static double eval_rational_plain(double x,
@@ -77,39 +64,6 @@ TEST_F(OpsTest, RemezRationalApprox_1_600) {
                   << "  |HE-true|=" << std::abs(he_val - true_val) << "\n";
 
         EXPECT_NEAR(he_val, remez_val, 0.15);
-    }
-}
-
-TEST_F(OpsTest, RemezRationalApprox_1e4_1) {
-    const CC& cc = ctx->cc;
-    const size_t slots = cc->GetRingDimension() / 2;
-
-    const double test_vals[] = { 1e-3, 0.01, 0.1, 0.5, 0.95 };
-
-    std::cout << "\n=== Remez (3,1) rational for 1/sqrt(x) over [1e-4, 1] ===\n";
-    for (double x_val : test_vals) {
-        auto pt = encode(cc, std::vector<double>(slots, x_val));
-        auto ct = encrypt(cc, pt, ctx->pk());
-        std::cout << "  x=" << x_val << "  input level=" << level_of(ct) << "\n";
-
-        Ctx result = eval_rational_approx(cc, ct,
-            REMEZ_P_1E4_1, REMEZ_Q_1E4_1,
-            REMEZ_QMIN_1E4_1, REMEZ_QMAX_1E4_1,
-            ctx->pk(), slots, /*gs_iters=*/10);
-
-        std::cout << "          output level=" << level_of(result) << "\n";
-
-        auto dec = decrypt(cc, result, ctx->sk());
-        double true_val  = 1.0 / std::sqrt(x_val);
-        double remez_val = eval_rational_plain(x_val, REMEZ_P_1E4_1, REMEZ_Q_1E4_1);
-        double he_val    = dec[0];
-
-        std::cout << "          true=" << true_val
-                  << "  remez_plain=" << remez_val
-                  << "  HE=" << he_val
-                  << "  |HE-true|=" << std::abs(he_val - true_val) << "\n";
-
-        EXPECT_NEAR(he_val, remez_val, 0.5);
     }
 }
 

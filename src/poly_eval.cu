@@ -4,10 +4,6 @@
 #include <functional>
 #include <vector>
 
-static void eval_rescale(const CC& cc, Ctx& x) {
-    cc->RescaleInPlace(x);
-}
-
 /// @brief Computes the Chebyshev coefficients for approximating a
 /// function f on the interval [a, b] with a polynomial of given degree.
 /// @param f, the function to approximate
@@ -154,15 +150,11 @@ Ctx eval_chebyshev(const CC& cc, const Ctx& x, std::vector<double> coeffs, doubl
 Ctx eval_polynomial(const CC& cc, const Ctx& x, const std::vector<double>& coeffs) {
     size_t n = coeffs.size();
     Ctx result = cc->EvalMult(x, coeffs[n - 1]);
-    eval_rescale(cc, result);
     cc->EvalAddInPlace(result, coeffs[n - 2]);
 
     for (int i = static_cast<int>(n) - 3; i >= 0; --i) {
         Ctx x_cloned = x->Clone();
-        match_level(cc, x_cloned, result);
-
         result = cc->EvalMult(result, x_cloned);
-        eval_rescale(cc, result);
         cc->EvalAddInPlace(result, coeffs[i]);
     }
 
@@ -201,21 +193,14 @@ Ctx eval_polynomial_ps(const CC& cc, const Ctx& x, const std::vector<double>& co
             if (i % 2 == 1) {
                 if (curr_x == nullptr) {
                     curr_x = cc->EvalMult(powers[pow_idx], coeffs[p]);
-                    // eval_rescale(cc, curr_x); // maybe we don't need to rescale here?
                 } else {
-                    match_level(cc, curr_x, powers[pow_idx]);
-                    // match_level(cc, powers[pow_idx], curr_x); //curr_x should always be at a level <= powers[pow_idx]
                     curr_x = cc->EvalMult(curr_x, powers[pow_idx]);
-                    eval_rescale(cc, curr_x);
                     never_rescaled = false;
                 }
             }
             pow_idx++;
         }
-        if (never_rescaled) eval_rescale(cc, curr_x); // if we only multiplied with the coefficient, thus we need to rescale before adding to the result
 
-        match_level(cc, result, curr_x);
-        // match_level(cc, curr_x, result); //result should always be at a level <= curr_x
         cc->EvalAddInPlace(result, curr_x);
     }
 
@@ -246,18 +231,14 @@ Ctx eval_polynomial_computational_ps(const CC& cc, const Ctx& x, const std::vect
                 if (curr_x == nullptr) {
                     curr_x = cc->EvalMult(running_x, coeffs[p]);
                 } else {
-                    match_level(cc, curr_x, running_x);
                     curr_x = cc->EvalMult(curr_x, running_x);
-                    eval_rescale(cc, curr_x);
                     never_rescaled = false;
                 }
             }
             running_x = cc->EvalSquare(running_x); // squaring triggers rescaling
             pow_idx++;
         }
-        if (never_rescaled) eval_rescale(cc, curr_x); // if we only multiplied with the coefficient, thus we need to rescale before adding to the result
 
-        match_level(cc, result, curr_x);
         cc->EvalAddInPlace(result, curr_x);
     }
 
@@ -277,21 +258,15 @@ Ctx eval_polynomial_deg4(const CC& cc, const Ctx& x, const std::vector<double>& 
     Ctx result = cc->EvalSquare(x2);
 
     cc->EvalMultInPlace(result, coeffs[4]);
-    eval_rescale(cc, result);
 
     Ctx A = cc->EvalMult(x, coeffs[1]);
     cc->EvalAddInPlace(A, coeffs[0]);
 
     Ctx B = cc->EvalMult(x, coeffs[3]);
     cc->EvalAddInPlace(B, coeffs[2]);
-    match_level(cc, B, x2);
     B = cc->EvalMult(B, x2);
-    eval_rescale(cc, B);
 
-    match_level(cc, A, B);
     A = cc->EvalAdd(A, B);
-
-    match_level(cc, A, result);
 
     return cc->EvalAdd(A, result);
 }
@@ -318,9 +293,7 @@ Ctx eval_rational_approx(const CC& cc, const Ctx& x,
 
     Ctx inv_q = goldschmidt_inv(cc, q_ct, x0, gs_iters);
 
-    match_level(cc, p_ct, inv_q);
     Ctx result = cc->EvalMult(p_ct, inv_q);
-    eval_rescale(cc, result);
 
     return result;
 }

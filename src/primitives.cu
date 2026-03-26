@@ -3,10 +3,6 @@
 #include <map>
 #include <functional>
 
-static void eval_rescale(const CC& cc, Ctx& x) {
-    cc->RescaleInPlace(x);
-}
-
 /// @brief Computes the inverse square root of a value using the Newton-Raphson iteration method.
 /// @param cc, the crypto context
 /// @param x, the input ciphertext for which we want to compute 1/sqrt(x)
@@ -16,36 +12,34 @@ static void eval_rescale(const CC& cc, Ctx& x) {
 /// @todo: this function is instead canonical... if we find out
 ///        that the goldschmidt method performs the same, we should replace
 ///        this function with the goldschmidt method, which should be better.
-Ctx inv_sqrt_newton(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters) {
-    Ctx ans = ans_init;
+Ctx inv_sqrt_newton(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters,
+                    const DepthGuard& dg) {
     int slots = cc->GetRingDimension() / 2;
-    
+
+    Ptx pt_05 = encode_const(cc, 0.5, slots, x->GetLevel());
+    Ctx c = cc->EvalMult(x, pt_05);
+
+    Ctx ct = ans_init;
+
     for (int i = 0; i < iters; ++i) {
-        Ctx ansSq = cc->EvalSquare(ans);
-        eval_rescale(cc, ansSq);
+        if (dg) { ct = dg(ct, i); c = dg(c, i); }
 
-        match_level(cc, ansSq, ans);
-        Ctx ansCu = cc->EvalMult(ansSq, ans);
-        eval_rescale(cc, ansCu);
+        Ptx pt_15 = encode_const(cc, 1.5, slots, ct->GetLevel());
 
-        Ptx pt_neg05 = cc->MakeCKKSPackedPlaintext(std::vector<double>(slots, -0.5), 1, x->GetLevel());
-        Ctx halfX = cc->EvalMult(x, pt_neg05);
-        eval_rescale(cc, halfX);
+        Ctx t = cc->EvalMult(ct, pt_15);
 
-        match_level(cc, ansCu, halfX);
-        Ctx term1 = cc->EvalMult(ansCu, halfX);
-        eval_rescale(cc, term1);
+        Ctx y2 = cc->EvalSquare(ct);
 
-        Ptx pt_15 = cc->MakeCKKSPackedPlaintext(std::vector<double>(slots, 1.5), 1, ans->GetLevel());
-        Ctx term2 = cc->EvalMult(ans, pt_15);
-        eval_rescale(cc, term2);
+        Ctx y3 = cc->EvalMult(y2, ct);
 
-        match_level(cc, term1, term2);
-        ans = cc->EvalAdd(term1, term2);
+        Ctx s = cc->EvalMult(c, y3);
+
+        ct = cc->EvalSub(t, s);
     }
-    return ans;
+    return ct;
 }
 
+/// TODO: seems to consume four levels while it should use 3?
 /// @brief Computes the inverse square root of a value using the Goldschmidt iteration method.
 /// @param cc, the crypto context
 /// @param x, the input ciphertext for which we want to compute 1/sqrt(x)
@@ -61,54 +55,59 @@ Ctx inv_sqrt_newton(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters) 
 ///        applied there? We should thoroughly check this, because it promises
 ///        to cost just 2 levels, and to also parallelize those multiplications.
 ///        Which I am wary to believe.
-Ctx goldschmidt_inv_sqrt(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters) {
-    Ctx ans = ans_init->Clone(); // makes function idempotent TODO: replace with copy tho!
-    Ctx x_copy = x; 
-    
-    match_level(cc, x_copy, ans);
+Ctx goldschmidt_inv_sqrt(const CC& cc, const Ctx& x, const Ctx& ans_init, int iters,
+                         const DepthGuard& dg) {
+    Ctx ans = ans_init->Clone();
+    Ctx x_copy = x;
+
     Ctx sqrt_ct = cc->EvalMult(x_copy, ans);
-    eval_rescale(cc, sqrt_ct);
 
     for (int i = 0; i < iters; ++i) {
-        match_level(cc, sqrt_ct, ans);
+        if (dg) { ans = dg(ans, i); sqrt_ct = dg(sqrt_ct, i); }
+
         Ctx res = cc->EvalMult(sqrt_ct, ans);
-        eval_rescale(cc, res);
 
-        cc->EvalMultInPlace(res, -0.5);   
-        cc->EvalAddInPlace(res, 1.5);     
+        cc->EvalMultInPlace(res, -0.5);
+        cc->EvalAddInPlace(res, 1.5);
 
-        match_level(cc, sqrt_ct, res);
         sqrt_ct = cc->EvalMult(sqrt_ct, res);
-        eval_rescale(cc, sqrt_ct);
 
-        match_level(cc, ans, res);
         ans = cc->EvalMult(ans, res);
-        eval_rescale(cc, ans);
     }
     return ans;
 }
 
 /// @brief Computes the inverse of a value using the Newton iteration method.
 /// @param cc, the crypto context
-/// @param res, the initial guess for the inverse, which will be updated in-place
-/// @param dnm, the input ciphertext for which we want to compute the inverse, updated in-place
+/// @param res, the initial guess for the inverse
+/// @param dnm, the ciphertext for which we want to compute 1/dnm
 /// @param iters, the number of iterations to perform
-/// @return the i-th Newton approximation of the inverse
-Ctx newton_inverse(const CC& cc, const Ctx& res, const Ctx& dnm, int iters) {
-    Ctx res_copy = res;
-
+/// @return the i-th Newton approximation of 1/dnm
+///
+/// Depth budget: 2 levels per iteration.
+///   y_{i+1} = y_i · (2 − d·y_i) = 2·y_i − d·y_i²
+///
+/// The "2·y − d·y²" form keeps the constant operation (subtraction) AFTER
+/// all multiplications.  This avoids an EvalAdd between two dependent ct×ct
+/// mults, which in FLEXIBLEAUTO would force an eager rescale and waste
+/// one level per iteration.
+///
+/// Critical path per iteration:
+///   y² (1 square, deferred) → d·y² (1 ct×ct)   = depth 2 from y
+///   2·y (1 scalar, parallel)                     = depth 1 from y
+///   EvalSub resolves both; result sits at depth 2.
+Ctx newton_inverse(const CC& cc, const Ctx& res, Ctx dnm, int iters,
+                   const DepthGuard& dg) {
+    Ctx y = res;
     for (int i = 0; i < iters; ++i) {
-        match_level(cc, res_copy, dnm);
-        Ctx a = cc->EvalMult(res_copy, dnm);
-        cc->EvalNegateInPlace(a);
-        cc->EvalAddInPlace(a, 2.0);
-        eval_rescale(cc, a);
+        if (dg) { y = dg(y, i); dnm = dg(dnm, i); }
 
-        match_level(cc, res_copy, a);
-        res_copy = cc->EvalMult(res_copy, a);
-        eval_rescale(cc, res_copy);
+        Ctx y2    = cc->EvalSquare(y);        // y²       (deferred rescale)
+        Ctx dy2   = cc->EvalMult(dnm, y2);    // d·y²     (resolves y², 1 ct×ct)
+        Ctx two_y = cc->EvalMult(y, 2.0);     // 2·y      (scalar, parallel path)
+        y = cc->EvalSub(two_y, dy2);           // 2·y − d·y²
     }
-    return res_copy;
+    return y;
 }
 
 /// @brief Computes the inverse of a value using the Goldschmidt iteration method.
@@ -124,28 +123,24 @@ Ctx newton_inverse(const CC& cc, const Ctx& res, const Ctx& dnm, int iters) {
 ///        The reason why it would make sense, is because during runtime
 ///        we will likely never reuse something that was used as input to this
 ///        function.
-Ctx goldschmidt_inv(const CC& cc, const Ctx& a, const Ctx& x0_init, int iters) {
-    Ctx x0 = x0_init;  
-    Ctx a_l = a;      
-
-    match_level(cc, a_l, x0);  
-    match_level(cc, x0, a_l);  
+Ctx goldschmidt_inv(const CC& cc, const Ctx& a, const Ctx& x0_init, int iters,
+                    const DepthGuard& dg) {
+    Ctx x0 = x0_init;
+    Ctx a_l = a;
 
     Ctx E = cc->EvalMult(a_l, x0);
-    eval_rescale(cc, E);
 
-    E = cc->EvalNegate(E);           
-    cc->EvalAddInPlace(E, 1.0);       
+    E = cc->EvalNegate(E);
+    cc->EvalAddInPlace(E, 1.0);
 
     for (int i = 0; i < iters; ++i) {
+        if (dg) { x0 = dg(x0, i); E = dg(E, i); }
+
         Ctx factor = cc->EvalAdd(E, 1.0);
 
-        match_level(cc, x0, factor);
         x0 = cc->EvalMult(x0, factor);
-        eval_rescale(cc, x0);
 
         cc->EvalSquareInPlace(E);
-        eval_rescale(cc, E);
     }
 
     return x0;
@@ -174,14 +169,28 @@ Ctx eval_linear_wsum(const CC& cc,
 /// @param x, the input ciphertext to be squared
 /// @param iters, the number of times to square the ciphertext
 /// @return the resulting ciphertext after repeated squaring
-Ctx exp_squaring(const CC& cc, Ctx x, int iters) {
+Ctx exp_squaring(const CC& cc, Ctx x, int iters,
+                 const DepthGuard& dg) {
     for (int i = 0; i < iters; ++i) {
+        if (dg) { x = dg(x, i); }
         cc->EvalSquareInPlace(x);
-        eval_rescale(cc, x);
     }
     return x;
 }
 
+
+/// @brief Masks the first active_dim * (slots / active_dim) slots, zeroing the rest.
+Ctx mask_slots(const CC& cc, const Ctx& x, int slots, int active_dim) {
+    int intRot = slots / active_dim;
+    int active = active_dim * intRot;
+    if (active >= slots) return x;
+
+    std::vector<double> mask_vec(slots, 0.0);
+    for (int i = 0; i < active; ++i) mask_vec[i] = 1.0;
+    Ptx mask = cc->MakeCKKSPackedPlaintext(
+        mask_vec, /*noiseScaleDeg=*/1, (uint32_t)level_of(x));
+    return cc->EvalMult(x, mask);
+}
 
 /// @brief compute encrypted average of a vector of ciphertexts
 Ctx compute_average(Inference& inf, const Ctx& x_in) {
@@ -210,13 +219,15 @@ Ctx compute_variance(Inference& inf, const Ctx& x_in, Ctx mean) {
     const int hD = inf.size.hidDim;
 
     Ctx xd = cc->EvalMult(x_in, (double)hD);
-    eval_rescale(cc, xd);
 
     drop_levels(cc, mean, 1);
     Ctx varc = cc->EvalSub(xd, mean); // N*(x - mean)
 
+    // Zero garbage slots before squaring — mean is broadcast to all slots
+    // so garbage positions hold -mean instead of 0 after the subtraction.
+    varc = mask_slots(cc, varc, S, hD);
+
     cc->EvalSquareInPlace(varc);
-    eval_rescale(cc, varc);
 
     for (int i = S / hD; i < S; i *= 2) {
         Ctx tmp = cc->EvalRotate(varc, i);
@@ -225,7 +236,6 @@ Ctx compute_variance(Inference& inf, const Ctx& x_in, Ctx mean) {
 
     double inv_d3 = 1.0 / std::pow((double)hD, 3.0); // 1/N^3 * sum(N^2*(x-mean)^2) = variance
     cc->EvalMultInPlace(varc, inv_d3);
-    eval_rescale(cc, varc);
 
     return varc;
 }

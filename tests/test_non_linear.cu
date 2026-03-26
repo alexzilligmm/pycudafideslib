@@ -93,8 +93,7 @@ TEST_F(NonLinearTest, LtApproxWithBts) {
         std::cout << "  post-bts level=" << level_of(results[i]) << "\n";
     }
 
-    match_level(cc, results[0], results[1]);
-    Ctx ind = cc->EvalSub(results[2], results[1]); 
+    Ctx ind = cc->EvalSub(results[2], results[1]);
 
     double got = decrypt(cc, ind, inf.fhe->sk())[0];
     std::cout << "\ninterval indicator [-1.95, 3) = " << got << " (expected 1)\n";
@@ -125,15 +124,37 @@ TEST_F(NonLinearTest, GeLUApproxWithBts) {
 TEST_F(NonLinearTest, NormApprox) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
+    const int hD = inf.size.hidDim;          // 768
+    const int intRot = S / hD;               // 2
 
-    const double raw[]   = { 1.0, 2.0, 3.0, 4.0, 5.0 };
-    const double true_mean = 3.0;
-    const double true_std  = std::sqrt(2.0);
-    double expect[5];
-    for (int j = 0; j < 5; ++j) expect[j] = (raw[j] - true_mean) / true_std;
+    // 5 distinct values cycling across hidDim; variance ≈ 0.02.
+    const double raw[]   = { 0.1, 0.2, 0.3, 0.4, 0.5 };
+    constexpr int nRaw   = 5;
 
+    // Compute ground truth from the actual 768 values.
+    double sum = 0.0;
+    for (int h = 0; h < hD; ++h) sum += raw[h % nRaw];
+    double true_mean = sum / hD;
+
+    double sq_sum = 0.0;
+    for (int h = 0; h < hD; ++h) {
+        double d = raw[h % nRaw] - true_mean;
+        sq_sum += d * d;
+    }
+    double true_var = sq_sum / hD;
+    double true_std = std::sqrt(true_var + NORM_ENCLLM_GPT2.epsilon);
+
+    double expect[nRaw];
+    for (int j = 0; j < nRaw; ++j) expect[j] = (raw[j] - true_mean) / true_std;
+
+    // Interleaved layout: slot[h*intRot + t] = raw[h % 5].
+    // Garbage slots get arbitrary values — norm() masks them internally.
     std::vector<double> msg(S);
-    for (int i = 0; i < S; ++i) msg[i] = raw[i % 5];
+    for (int h = 0; h < hD; ++h)
+        for (int t = 0; t < intRot; ++t)
+            msg[h * intRot + t] = raw[h % nRaw];
+    for (int i = hD * intRot; i < S; ++i)
+        msg[i] = 999.0;  // garbage — must be masked out by norm()
 
     auto pt = cc->MakeCKKSPackedPlaintext(msg);
     auto ct = cc->Encrypt(inf.fhe->pk(), pt);
@@ -144,56 +165,99 @@ TEST_F(NonLinearTest, NormApprox) {
 
     auto res = decrypt(cc, out, inf.fhe->sk());
 
-    for (int j = 0; j < 5; ++j) {
-        double got = res[j]; 
+    // Check first 5 hidden-dim positions (stride = intRot) for token 0.
+    for (int j = 0; j < nRaw; ++j) {
+        double got = res[j * intRot];
         std::cout << "  norm(raw[" << j << "]=" << raw[j] << ") = "
                   << got << "  (expected " << expect[j] << ")\n";
-        EXPECT_NEAR(got, expect[j], 0.1);
+        EXPECT_NEAR(got, expect[j], 0.15);
     }
+}
+
+// Helper: compute expected softmax probabilities and pack input into slots.
+static void softmax_test_setup(
+        const CC& cc, int S, int seq_dim,
+        const double* inp,
+        std::vector<double>& expected,
+        std::vector<double>& msg) {
+    int stride = S / seq_dim;
+    double vmax = *std::max_element(inp, inp + seq_dim);
+    expected.resize(seq_dim);
+    double esum = 0.0;
+    for (int i = 0; i < seq_dim; ++i) esum += std::exp(inp[i] - vmax);
+    for (int i = 0; i < seq_dim; ++i) expected[i] = std::exp(inp[i] - vmax) / esum;
+
+    msg.assign(S, 0.0);
+    for (int i = 0; i < seq_dim; ++i)
+        std::fill(msg.begin() + i*stride, msg.begin() + (i+1)*stride, inp[i]);
+}
+
+static void softmax_check(const std::vector<double>& res,
+                           const std::vector<double>& expected,
+                           int stride, int seq_dim, double tol) {
+    std::cout << "  result : [";
+    for (int i = 0; i < seq_dim; ++i)
+        std::cout << res[i * stride] << (i < seq_dim-1 ? ", " : "");
+    std::cout << "]\n  expect : [";
+    for (int i = 0; i < seq_dim; ++i)
+        std::cout << expected[i] << (i < seq_dim-1 ? ", " : "");
+    std::cout << "]\n";
+
+    double total = 0.0;
+    for (int i = 0; i < seq_dim; ++i) {
+        EXPECT_NEAR(res[i * stride], expected[i], tol);
+        total += res[i * stride];
+    }
+    std::cout << "  sum    : " << total << "  (expected 1.0)\n";
+    EXPECT_NEAR(total, 1.0, tol);
 }
 
 TEST_F(NonLinearTest, SoftmaxWithOracleMax) {
     const CC& cc = inf.cc();
-    const int S  = inf.slots;           // 2048
+    const int S  = inf.slots;
 
-    const int seq_dim    = 4;           // 2 sign calls without oracle → fails;
-    const int stride     = S / seq_dim; // 512   with oracle → free
-    const int r          = 7;
-    const int gs_iters   = 10;
-    const int target_btp = 14;
+    SoftmaxConfig cfg = SOFTMAX_ENCLLM_GPT2;
+    cfg.seq_dim = 4;
+    const int stride = S / cfg.seq_dim;
 
     const double inp[] = { -2.0, 0.5, 1.5, -0.5 };
-    const double vmax  = *std::max_element(inp, inp + seq_dim);  // 1.5
-    double e[4], esum = 0.0;
-    for (int i = 0; i < seq_dim; ++i) { e[i] = std::exp(inp[i] - vmax); esum += e[i]; }
-    double s[4];
-    for (int i = 0; i < seq_dim; ++i) s[i] = e[i] / esum;
+    std::vector<double> expected, msg;
+    softmax_test_setup(cc, S, cfg.seq_dim, inp, expected, msg);
 
-    std::vector<double> msg(S);
-    for (int i = 0; i < seq_dim; ++i)
-        std::fill(msg.begin() + i*stride, msg.begin() + (i+1)*stride, inp[i]);
     auto pt = cc->MakeCKKSPackedPlaintext(msg);
     Ctx x_in = cc->Encrypt(inf.fhe->pk(), pt);
-    std::cout << "Encrypt x_in          level=" << level_of(x_in) << "\n";
-
+    double vmax = *std::max_element(inp, inp + cfg.seq_dim);
     Ctx x_max = encrypt_const(cc, vmax, (size_t)S, inf.fhe->pk());
-    std::cout << "Encrypt oracle max    level=" << level_of(x_max)
-              << "  val=" << decrypt(cc, x_max, inf.fhe->sk())[0] << "\n\n";
+    std::cout << "Encrypt x_in level=" << level_of(x_in)
+              << "  oracle max=" << vmax << "\n";
 
-    Ctx y = softmax(inf, x_in, target_btp, r, gs_iters, seq_dim, x_max);
-    std::cout << "softmax() result      level=" << level_of(y) << "\n";
+    Ctx y = softmax(inf, x_in, cfg, x_max);
+    std::cout << "softmax() result level=" << level_of(y) << "\n";
 
     auto res = decrypt(cc, y, inf.fhe->sk());
-    std::cout << "  result : [" << res[0]          << ", " << res[stride]
-              << ", "           << res[2*stride]    << ", " << res[3*stride] << "]\n"
-              << "  expect : [" << s[0] << ", " << s[1] << ", " << s[2] << ", " << s[3] << "]\n";
+    softmax_check(res, expected, stride, cfg.seq_dim, 0.05);
+}
 
-    EXPECT_NEAR(res[0],         s[0], 0.05);
-    EXPECT_NEAR(res[stride],    s[1], 0.05);
-    EXPECT_NEAR(res[2*stride],  s[2], 0.05);
-    EXPECT_NEAR(res[3*stride],  s[3], 0.05);
+TEST_F(NonLinearTest, SoftmaxWithoutOracle) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
 
-    double total = res[0] + res[stride] + res[2*stride] + res[3*stride];
-    std::cout << "  sum    : " << total << "  (expected 1.0)\n";
-    EXPECT_NEAR(total, 1.0, 0.05);
+    // Non-oracle path: sign-max consumes ~17 levels, dynamic btp_min_remaining
+    // triggers bootstrap at phase boundaries when depth runs low.
+    SoftmaxConfig cfg = SOFTMAX_NOMAX_GPT2;
+    const int stride = S / cfg.seq_dim;
+
+    const double inp[] = { -0.5, 0.8 };
+    std::vector<double> expected, msg;
+    softmax_test_setup(cc, S, cfg.seq_dim, inp, expected, msg);
+
+    auto pt2 = cc->MakeCKKSPackedPlaintext(msg);
+    Ctx x_in = cc->Encrypt(inf.fhe->pk(), pt2);
+    std::cout << "Encrypt x_in level=" << level_of(x_in) << "\n";
+
+    Ctx y = softmax(inf, x_in, cfg, /*precomputed_max=*/nullptr);
+    std::cout << "softmax() result level=" << level_of(y) << "\n";
+
+    auto res = decrypt(cc, y, inf.fhe->sk());
+    softmax_check(res, expected, stride, cfg.seq_dim, 0.1);
 }

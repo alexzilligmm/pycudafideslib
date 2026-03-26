@@ -5,10 +5,21 @@ GPU-accelerated FHE inference for transformer models (GPT-2, LLaMA) using CKKS h
 ## Architecture
 
 ```
-                    prepare_gpt2_weights.py
-                    (HuggingFace -> .txt)
-                            |
-                            v
+ prepare_gpt2_weights.py
+ (HuggingFace -> .txt)
+         |
+         v
+ estimate_ranges.py  --->  ranges-<model>.json
+ (plaintext inference          (per-op min/max
+  to profile activations)       value ranges)
+         |
+         v
+ remez_cli  ------------->  poly_coeffs-<model>.json
+ (minimax fit over             (standard monomial coefficients
+  profiled ranges)              + recommended degree, for PS eval)
+         |
+         | (update src/nonlinear.cu if coefficients changed)
+         v
  run_bench.sh  --->  cuda_cachemir  --->  raw_result.csv  --->  new_data.csv
  (sweep all ops       (C++/CUDA          (per-op timings)       (latency table)
   at each level)       benchmark)                                      |
@@ -129,7 +140,51 @@ Output: the optimal route through the computation showing **where to place each 
 ======================================================================
 ```
 
-### 5. Extract GPT-2 Weights from HuggingFace
+### 5. Estimate Activation Ranges and Fit Polynomial Approximations
+
+Before building with real weights, profile the activation value ranges across the model so that polynomial approximations (GELU, SiLU, Softmax, Norm) are fitted over the correct domain. Wrong intervals waste levels or degrade accuracy.
+
+**Step 5a — collect per-layer activation ranges from plaintext inference:**
+
+```bash
+# Run on real or representative inputs; writes ranges-<model>.json
+python estimate_ranges.py --model gpt2 --weights weights-gpt2/ --out ranges-gpt2.json
+python estimate_ranges.py --model llama --weights weights-llama/ --out ranges-llama.json
+```
+
+Output (`ranges-gpt2.json`) contains per-op min/max observed values, e.g.:
+```json
+{
+  "gelu_input":   {"min": -8.2,  "max": 6.1},
+  "softmax_input":{"min": -142.0,"max": 3.4},
+  "norm_variance":{"min": 1e-4,  "max": 12.3}
+}
+```
+
+**Step 5b — run the Remez CLI to produce minimax polynomial coefficients (standard basis):**
+
+```bash
+# Fits a minimax polynomial over the profiled ranges via the Remez algorithm;
+# writes poly_coeffs-<model>.json with standard monomial coefficients + recommended degree.
+# These feed directly into eval_polynomial_ps (Paterson-Stockmeyer, standard basis).
+remez_cli --ranges ranges-gpt2.json --model gpt2 --out poly_coeffs-gpt2.json
+
+# Use polyeval.py to compare approximation strategies (Remez, Taylor, Chebyshev)
+# and inspect error vs. degree trade-offs — it is an analysis tool, not the fitter:
+python polyeval.py --ranges ranges-gpt2.json --coeffs poly_coeffs-gpt2.json --plot
+```
+
+The Remez tests can also be run directly to validate a specific approximation:
+```bash
+./build/bin/test_remez_taylor   # unit tests for Remez & Taylor approximations
+```
+
+After updating coefficients in `src/nonlinear.cu`, rebuild before benchmarking:
+```bash
+make -C build -j
+```
+
+### 6. Extract GPT-2 Weights from HuggingFace
 
 ```bash
 pip install transformers torch
@@ -168,24 +223,32 @@ weights-gpt2/
 ## Full Pipeline (End to End)
 
 ```bash
-# 1. Build
+# 1. Extract weights
+pip install transformers torch
+python prepare_gpt2_weights.py --model gpt2 --out_dir weights-gpt2 --slots 32768
+
+# 2. Profile activation ranges (plaintext, no FHE)
+python estimate_ranges.py --model gpt2 --weights weights-gpt2/ --out ranges-gpt2.json
+
+# 3. Fit minimax polynomials (standard basis, for PS evaluation)
+remez_cli --ranges ranges-gpt2.json --model gpt2 --out poly_coeffs-gpt2.json
+#    → update coefficients in src/nonlinear.cu if needed
+
+# 4. Build
 mkdir -p build && cd build && cmake .. && make -j && cd ..
 
-# 2. Benchmark all ops to get latency table
+# 5. Benchmark all ops to get latency table
 ./run_bench.sh --model gpt2 --logN 16 --hidDim 768 --ffDim 3072
 
-# 3. run_bench.sh automatically calls bootstrap.py at the end,
+# 6. run_bench.sh automatically calls bootstrap.py at the end,
 #    but you can also re-run with different parameters:
 python bootstrap.py --file new_data.csv --model gpt2
 
-# 4. Read the placement output, update bootstrap_to() targets
+# 7. Read the placement output, update bootstrap_to() targets
 #    in src/gpt2.cu if needed, rebuild, and run inference:
 make -C build -j
 ./build/bin/cuda_cachemir -test Model -model gpt2 \
     -logN 16 -hidDim 768 -ffDim 3072 -numHeads 12
-
-# 5. (Optional) Use real weights instead of random:
-python prepare_gpt2_weights.py --model gpt2 --slots 32768
 ```
 
 ## Project Structure

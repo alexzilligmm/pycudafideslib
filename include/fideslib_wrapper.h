@@ -164,11 +164,9 @@ inline uint32_t level_of(const Ctx& ct) {
     return (uint32_t)ct->GetLevel();
 }
 
-inline void match_level(const CC& /*cc*/, Ctx& ct, const Ctx& ref) {
-    uint32_t ct_lvl  = level_of(ct);
-    uint32_t ref_lvl = level_of(ref);
-    if (ct_lvl < ref_lvl)
-        CryptoContextImpl<DCRTPoly>::SetLevel(ct, ref_lvl);
+inline void match_level(const CC& /*cc*/, Ctx& /*ct*/, Ctx& /*ref*/) {
+    // FLEXIBLEAUTO mode handles level alignment automatically before EvalMult;
+    // manual SetLevel/ModSwitch here was causing implicit extra level costs.
 }
 
 inline void drop_levels(const CC& /*cc*/, Ctx& ct, uint32_t n) {

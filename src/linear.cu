@@ -8,7 +8,6 @@
 void rotate_add_inplace(Inference& llama, Ctx& x, int step) {
     const CC& cc = llama.cc();
     Ctx tmp = cc->EvalRotate(x, step);
-    match_level(cc, x, tmp);
     cc->EvalAddInPlace(x, tmp);
 }
 
@@ -62,7 +61,6 @@ Ctx linear(Inference& llama, const Ctx& x,
 
     for (int i = 0; i < n_weights; ++i) {
         if (i % inRot > 0) {
-            match_level(cc, partSum[i - i % inRot], partSum[i]);
             cc->EvalAddInPlace(partSum[i - i % inRot], partSum[i]);
         }
     }
@@ -79,7 +77,6 @@ Ctx linear(Inference& llama, const Ctx& x,
     }
 
     for (int i = 1; i < outRot; ++i) {
-        match_level(cc, partSum[0], partSum[i * inRot]);
         cc->EvalAddInPlace(partSum[0], partSum[i * inRot]);
     }
 
@@ -108,9 +105,7 @@ static Ctx rope_single(Inference& llama, const Ctx& x) {
     Ctx xsin1 = cc->EvalMult(x, w[2]);
     xsin1     = cc->EvalRotate(xsin1, -intRot);   // Go: -(numSlots / hidDim)
 
-    match_level(cc, xcos, xsin0);
     Ctx y = cc->EvalAdd(xcos, xsin0);
-    match_level(cc, y, xsin1);
     cc->EvalAddInPlace(y, xsin1);
     return y;
 }
@@ -159,7 +154,6 @@ void cache_kv(Inference& llama, const Ctx& k, const Ctx& v) {
     } else {
         // Go: eval.Rotate(k, intIdx, k)
         Ctx k_rot = cc->EvalRotate(k, intIdx);
-        match_level(cc, kCache[midIdx], k_rot);
         cc->EvalAddInPlace(kCache[midIdx], k_rot);
     }
 
@@ -177,13 +171,11 @@ void cache_kv(Inference& llama, const Ctx& k, const Ctx& v) {
         #pragma omp parallel for schedule(dynamic)
         for (int i = 0; i < hd; ++i) {
             Ctx tmp = cc->EvalMult(v_rot, cacheMask[i]);
-            match_level(cc, vCache[i], tmp);
             cc->EvalAddInPlace(vCache[i], tmp);
         }
     } else {
         for (int i = 0; i < hd; ++i) {
             Ctx tmp = cc->EvalMult(v_rot, cacheMask[i]);
-            match_level(cc, vCache[i], tmp);
             cc->EvalAddInPlace(vCache[i], tmp);
         }
     }
@@ -217,7 +209,6 @@ Ctx qk_transpose(Inference& llama, const Ctx& q) {
         for (int j = 1; j < nrot; j *= 2) {
             Ctx rotated = cc->EvalRotate(tmp, inner_step * (int)std::log2(j + 1));
             // TODO: inner_step may need key registration; simpler formula TBD
-            match_level(cc, tmp, rotated);
             cc->EvalAddInPlace(tmp, rotated);
         }
         tmp = cc->EvalMult(tmp, kmask);
@@ -234,7 +225,6 @@ Ctx qk_transpose(Inference& llama, const Ctx& q) {
 
     Ctx y = results[0];
     for (int i = 1; i < n; ++i) {
-        match_level(cc, y, results[i]);
         cc->EvalAddInPlace(y, results[i]);
     }
     return y;
@@ -285,7 +275,6 @@ Ctx attn_v(Inference& llama, const Ctx& s) {
     // Input-sum within blocks
     for (int i = 0; i < nv; ++i) {
         if (i % inRot > 0) {
-            match_level(cc, partSum[i - i % inRot], partSum[i]);
             cc->EvalAddInPlace(partSum[i - i % inRot], partSum[i]);
         }
     }
@@ -293,7 +282,6 @@ Ctx attn_v(Inference& llama, const Ctx& s) {
     // Output rotations + sum (giant-step: i * space * inRot)
     for (int i = 1; i < outRot; ++i) {
         partSum[i * inRot] = cc->EvalRotate(partSum[i * inRot], i * space * inRot);
-        match_level(cc, partSum[0], partSum[i * inRot]);
         cc->EvalAddInPlace(partSum[0], partSum[i * inRot]);
     }
 

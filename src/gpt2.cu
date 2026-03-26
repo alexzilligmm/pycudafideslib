@@ -167,7 +167,6 @@ Ctx gpt2_decoder(Inference& inf, const Ctx& x_in) {
 
     // ── 5. Residual connection (attention) ──
     Ctx x = x_in;
-    match_level(cc, x, attn_out);
     cc->EvalAddInPlace(x, attn_out);
 
     // ── 6. Pre-MLP LayerNorm ──
@@ -185,7 +184,6 @@ Ctx gpt2_decoder(Inference& inf, const Ctx& x_in) {
     y = down_proj(inf, y);
 
     // ── 10. Residual connection (MLP) ──
-    match_level(cc, x, y);
     cc->EvalAddInPlace(x, y);
 
     std::cout << "GPT-2 Decoder done in " << t.elapsed_s() << " s\n";

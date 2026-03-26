@@ -124,7 +124,6 @@ Ctx decoder(Inference& llama, const Ctx& x_in) {
     Ctx o = attn_v(llama, s);
     o = out_proj(llama, o);
 
-    match_level(cc, x, o);
     cc->EvalAddInPlace(x, o);                // residual
 
     x = bootstrap_to(llama, x, 15);
@@ -135,12 +134,10 @@ Ctx decoder(Inference& llama, const Ctx& x_in) {
     gate_ct = bootstrap_to(llama, gate_ct, 9);
     gate_ct = silu(llama, gate_ct);
 
-    match_level(cc, up_ct, gate_ct);
     Ctx y = cc->EvalMult(up_ct, gate_ct);
 
     y = down_proj(llama, y);
 
-    match_level(cc, x, y);
     cc->EvalAddInPlace(x, y);                // residual
     y = x;
 

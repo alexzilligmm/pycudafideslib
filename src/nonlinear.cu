@@ -101,19 +101,15 @@ Ctx lt_function(Inference& inf, const Ctx& x_in, double value,
     const CC& cc = inf.cc();
     auto x = x_in->Clone();        
     Ctx y = cc->EvalAdd(x, -value);
-    if (rescale_factor != 1.0) {
+    if (rescale_factor != 1.0)
         cc->EvalMultInPlace(y, rescale_factor);
-        cc->RescaleInPlace(y);
-    }
 
     Ctx s = sign(inf, y);
 
     // (1 - s) / 2
     Ctx res = cc->EvalNegate(s);
-    cc->RescaleInPlace(res);
     cc->EvalAddInPlace(res, 1.0);
     cc->EvalMultInPlace(res, 0.5);
-    cc->RescaleInPlace(res);
 
     return res;
 }
@@ -157,35 +153,21 @@ Ctx gelu(Inference& inf, const Ctx& x_in, const GeluConfig& cfg) {
     lt_m195 = cc->EvalBootstrap(lt_m195);
     lt_p3   = cc->EvalBootstrap(lt_p3);
 
-    match_level(cc, lt_m4, lt_m195);
-    match_level(cc, lt_m195, lt_p3);
-
-
     Ctx ind_f0  = cc->EvalSub(lt_m195, lt_m4);
     Ctx ind_f1  = cc->EvalSub(lt_p3,   lt_m195);
     Ctx ind_lin = cc->EvalNegate(lt_p3);
-    cc->RescaleInPlace(ind_lin);
     cc->EvalAddInPlace(ind_lin, 1.0);
 
     Ctx p0 = eval_polynomial_ps(cc, x_in, poly_f0, inf.fhe->pk(), (size_t)S);
     Ctx p1 = eval_polynomial_ps(cc, x_in, poly_f1, inf.fhe->pk(), (size_t)S);
 
-    match_level(cc, ind_f0, p0);
     Ctx term0 = cc->EvalMult(ind_f0, p0);
-    cc->RescaleInPlace(term0);
-
-    match_level(cc, ind_f1, p1);
     Ctx term1 = cc->EvalMult(ind_f1, p1);
-    cc->RescaleInPlace(term1);
 
     Ctx x_copy = x_in;
-    match_level(cc, ind_lin, x_copy);
     Ctx term2 = cc->EvalMult(ind_lin, x_copy);
-    cc->RescaleInPlace(term2);
 
-    match_level(cc, term0, term1);
     cc->EvalAddInPlace(term0, term1);
-    match_level(cc, term0, term2);
     cc->EvalAddInPlace(term0, term2);
 
     return term0;
@@ -198,8 +180,14 @@ Ctx norm(Inference& inf, const Ctx& x_in,
     const int S  = inf.slots;
     const int hD = inf.size.hidDim;
 
-    Ctx mean = compute_average(inf, x_in);
-    Ctx varc = compute_variance(inf, x_in, mean);
+    // Zero out slots beyond hD * (S/hD) so mean/variance sums are correct.
+    Ctx x = mask_slots(cc, x_in, S, hD);
+
+    Ctx mean = compute_average(inf, x);
+    Ctx varc = compute_variance(inf, x, mean);
+
+    // Add LayerNorm epsilon to variance before computing 1/sqrt(var + eps)
+    cc->EvalAddInPlace(varc, cfg.epsilon);
 
     std::vector<double> coeffs_std(cfg.nr_init_coeffs.rbegin(), cfg.nr_init_coeffs.rend());
 
@@ -213,8 +201,7 @@ Ctx norm(Inference& inf, const Ctx& x_in,
             double alpha = 4.0 / (cfg.gs_d_min + cfg.gs_d_max);
             double beta  = alpha * alpha / 4.0;
             auto div_init = cc->EvalMult(varc, -beta);
-            cc->RescaleInPlace(inv_sqrt_init);
-            cc->EvalAddInPlace(inv_sqrt_init, alpha);
+            cc->EvalAddInPlace(div_init, alpha);
 
             inv_sqrt_init = eval_rational_approx(cc, div_init,
                                   cfg.remez_p_coeffs, cfg.remez_q_coeffs,
@@ -230,20 +217,24 @@ Ctx norm(Inference& inf, const Ctx& x_in,
         }
     }
 
+    DepthGuard dg;
+    if (!cfg.nr_btp_schedule.empty() || cfg.nr_btp_min_remaining > 0) {
+        dg.refresh = [&](const Ctx& ct) {
+            return bootstrap_to(inf, ct, (uint32_t)target_level_after_btp);
+        };
+        dg.schedule      = cfg.nr_btp_schedule;
+        dg.total_depth   = (uint32_t)inf.total_depth;
+        dg.min_remaining = cfg.nr_btp_min_remaining;
+    }
+
     Ctx inv_sqrt_varc;
-    inv_sqrt_varc = inv_sqrt_newton(cc, varc, inv_sqrt_init, cfg.nr_iters);
-    
+    inv_sqrt_varc = inv_sqrt_newton(cc, varc, inv_sqrt_init, cfg.nr_iters, dg);
 
     Ctx x_centered = x_in->Clone();
     Ctx true_mean  = cc->EvalMult(mean, 1.0 / (double)hD);
-    cc->RescaleInPlace(true_mean);
-
-    match_level(cc, x_centered, true_mean);
     cc->EvalSubInPlace(x_centered, true_mean);
 
-    match_level(cc, x_centered, inv_sqrt_varc);
     Ctx result = cc->EvalMult(x_centered, inv_sqrt_varc);
-    cc->RescaleInPlace(result);
 
     return result;
 }
@@ -252,13 +243,10 @@ Ctx norm(Inference& inf, const Ctx& x_in,
 Ctx exp_approx(const CC& cc, const Ctx& x, int r) {
     double inv_2r = 1.0 / (double)(1 << r);
     Ctx y = cc->EvalMult(x, inv_2r);    // x / 2^r
-    cc->RescaleInPlace(y);
     cc->EvalAddInPlace(y, 1.0);          // 1 + x/2^r
 
-    for (int i = 0; i < r; ++i) {        // square r times
+    for (int i = 0; i < r; ++i)          // square r times
         cc->EvalSquareInPlace(y);
-        cc->RescaleInPlace(y);
-    }
     return y;
 }
 
@@ -272,20 +260,15 @@ Ctx softmax_cachemir(Inference& inf, const Ctx& x_in,
 
     Ptx pt_inv128 = const_pt(cc, 0.0078125, S, level_of(x));
     cc->EvalMultInPlace(x, pt_inv128);
-    cc->RescaleInPlace(x);
-
     cc->EvalAddInPlace(x, 1.0);
 
-    for (int i = 0; i < (7 + temp); ++i) {
+    for (int i = 0; i < (7 + temp); ++i)
         cc->EvalSquareInPlace(x);
-        cc->RescaleInPlace(x);
-    }
 
     Ctx exp_ct = x->Clone();
 
     const double v = 8.0 / S;
     cc->EvalMultInPlace(x, v);
-    cc->RescaleInPlace(x);
 
     for (int j = 1; j < 256; j *= 2) {
         Ctx tmp = cc->EvalRotate(x, 1024 / j);
@@ -295,41 +278,35 @@ Ctx softmax_cachemir(Inference& inf, const Ctx& x_in,
     x = bootstrap_to(inf, x, (uint32_t)target_level_after_btp);
 
     Ctx res = cc->EvalNegate(x);
-    cc->RescaleInPlace(res);
     cc->EvalAddInPlace(res, 1.0);
     Ctx dnm = cc->EvalAdd(res, 1.0);
 
     for (int i = 0; i < 7; ++i) {
         cc->EvalSquareInPlace(res);
-        cc->RescaleInPlace(res);
 
         Ctx tmp = cc->EvalAdd(res, 1.0);
-        match_level(cc, dnm, tmp);
         dnm = cc->EvalMult(dnm, tmp);
-        cc->RescaleInPlace(dnm);
     }
 
     reduce_to_level(cc, exp_ct, level_of(dnm), S);
 
     Ctx y = cc->EvalMult(exp_ct, dnm);
-    cc->RescaleInPlace(y);
-
     cc->EvalMultInPlace(y, v);
-    cc->RescaleInPlace(y);
 
     return y;
 }
 
 /// @brief Numerically-stable softmax: exp(x - max) / sum(exp(x - max)).
-/// @param precomputed_max  If non-null, skip the max computation (useful when
+/// @param precomputed_max  If non-null, skip the sign-based max (oracle path).
 Ctx softmax(Inference& inf, const Ctx& x_in,
-             int target_level_after_btp,
-             int r, int gs_iters, int seq_dim,
+             const SoftmaxConfig& cfg,
              const Ctx& precomputed_max) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
-    const int stride = S / seq_dim;
+    const int seq_dim = cfg.seq_dim;
+    const int stride  = S / seq_dim;
 
+    // ---- Phase 1: compute or accept max ----
     Ctx x_max;
     if (precomputed_max != nullptr) {
         x_max = precomputed_max->Clone();
@@ -341,28 +318,42 @@ Ctx softmax(Inference& inf, const Ctx& x_in,
             Ctx diff = cc->EvalSub(x_max, shifted);
             Ctx s    = sign(inf, diff);
 
-            match_level(cc, s, diff);
             Ctx abs_diff = cc->EvalMult(s, diff);      // |diff| ≈ sign(diff)*diff
-            cc->RescaleInPlace(abs_diff);
 
             Ctx sum = cc->EvalAdd(x_max, shifted);
 
-            match_level(cc, sum, abs_diff);
             cc->EvalAddInPlace(sum, abs_diff);          // sum + |diff|
             cc->EvalMultInPlace(sum, 0.5);              // (sum + |diff|) / 2
-            cc->RescaleInPlace(sum);
 
             x_max = sum;
         }
+        std::cout << "  [softmax] sign-max done, consumed=" << level_of(x_max) << "\n";
     }
 
+    // Helper: bootstrap ct if remaining levels < threshold (0 = never).
+    auto maybe_btp = [&](Ctx& ct, const char* tag) {
+        if (cfg.btp_min_remaining == 0) return;
+        uint32_t consumed  = level_of(ct);
+        uint32_t remaining = (uint32_t)inf.total_depth - consumed;
+        if (remaining < cfg.btp_min_remaining) {
+            ct = bootstrap_to(inf, ct, (uint32_t)cfg.btp_target_level);
+            std::cout << "  [softmax] " << tag << " bootstrap, consumed="
+                      << level_of(ct) << "\n";
+        }
+    };
+
+    // ---- Phase boundary: after max, before subtract ----
+    maybe_btp(x_max, "post-max");
+
+    // ---- Phase 2: exp(x - max) ----
     Ctx x_shifted = x_in->Clone();
-    match_level(cc, x_shifted, x_max);
     cc->EvalSubInPlace(x_shifted, x_max);
 
-    std::cout << "Level of input to exp_approx: " << level_of(x_shifted) << "\n";
-    Ctx exp_ct = exp_approx(cc, x_shifted, r);
+    std::cout << "  [softmax] input to exp_approx, consumed=" << level_of(x_shifted) << "\n";
+    maybe_btp(x_shifted, "pre-exp");
+    Ctx exp_ct = exp_approx(cc, x_shifted, cfg.exp_r);
 
+    // ---- Phase 3: sum and inverse ----
     Ctx exp_sum = exp_ct->Clone();
     for (int gap = stride; gap < S; gap *= 2) {
         Ctx tmp = cc->EvalRotate(exp_sum, gap);
@@ -371,14 +362,23 @@ Ctx softmax(Inference& inf, const Ctx& x_in,
 
     double alpha = 1.0 / (double)seq_dim;
     Ctx inv_init = encrypt_const(cc, alpha, (size_t)S, inf.fhe->pk());
-    match_level(cc, inv_init, exp_sum);
 
-    Ctx inv_sum = goldschmidt_inv(cc, exp_sum, inv_init, gs_iters);
+    maybe_btp(exp_sum, "pre-inv");
 
-    match_level(cc, exp_ct, inv_sum);
+    // Build DepthGuard for goldschmidt_inv iterations
+    DepthGuard dg;
+    if (!cfg.gs_btp_schedule.empty() || cfg.gs_btp_min_remaining > 0) {
+        dg.refresh = [&](const Ctx& ct) {
+            return bootstrap_to(inf, ct, (uint32_t)cfg.btp_target_level);
+        };
+        dg.schedule      = cfg.gs_btp_schedule;
+        dg.total_depth   = (uint32_t)inf.total_depth;
+        dg.min_remaining = cfg.gs_btp_min_remaining;
+    }
+
+    Ctx inv_sum = goldschmidt_inv(cc, exp_sum, inv_init, cfg.gs_inv_iters, dg);
+
     Ctx y = cc->EvalMult(exp_ct, inv_sum);
-    cc->RescaleInPlace(y);
-
     return y;
 }
 
@@ -400,25 +400,20 @@ Ctx argmax(Inference& inf, const Ctx& x_in) {
     // --- Goldschmidt for inverse ---
     // TODO: WHYYYYY?! Why not just call the primitive?
     Ctx res = cc->EvalNegate(sum);
-    cc->RescaleInPlace(res);
     cc->EvalAddInPlace(res, 1.0);
     Ctx dnm = cc->EvalAdd(res, 1.0);
 
     for (int i = 0; i < 12; ++i) {
         cc->EvalSquareInPlace(res);
-        cc->RescaleInPlace(res);
 
         Ctx tmp = cc->EvalAdd(res, 1.0);
-        match_level(cc, dnm, tmp);
         dnm = cc->EvalMult(dnm, tmp);
-        cc->RescaleInPlace(dnm);
     }
     // --- End Goldschmidt for inverse ---
 
     Ctx logit_copy = cc->EvalAdd(logit, 0.0); // TODO: i dunno what to say anymore.
     reduce_to_level(cc, logit_copy, level_of(dnm), S);
     Ctx y = cc->EvalMult(logit_copy, dnm); // TODO: Soo we doing probabilities * (1/sum of probabilities) = probabilities, right?
-    cc->RescaleInPlace(y);
 
     // Actual argmax trick, if we have high enough temp
     // then the softmax distribution with almost be one-hot encoding,
@@ -428,7 +423,6 @@ Ctx argmax(Inference& inf, const Ctx& x_in) {
         idx_vec[i] = (double)i;
     Ptx idx = cc->MakeCKKSPackedPlaintext(idx_vec, 1, level_of(y));
     cc->EvalMultInPlace(y, idx);
-    cc->RescaleInPlace(y);
 
     for (int i = 1; i < 256; i *= 2) {
         Ctx tmp = cc->EvalRotate(y, 1024 / i);

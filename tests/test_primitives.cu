@@ -93,6 +93,37 @@ TEST_F(OpsTest, ComputeAverage_Constant) {
               << " expected=" << expected << "\n";
 }
 
+TEST_F(OpsTest, ComputeAverage_Random) {
+    const CC& cc = ctx->cc;
+    const size_t slots = cc->GetRingDimension() / 2;
+
+    Inference inf;
+    inf.fhe    = ctx;
+    inf.slots  = (int)slots;
+    inf.size.hidDim = 256;
+
+    const double c = 5.0;
+    std::vector<double> x(slots);
+    for (size_t i = 0; i < slots; ++i)
+        x[i] = c + (i * 0.01);
+    auto pt = encode(cc, x);
+    auto ct = encrypt(cc, pt, ctx->pk());
+
+    Ctx result = compute_average(inf, ct);
+    auto vals  = decrypt(cc, result, ctx->sk());
+
+    // compute_average returns the raw sum across hidDim at stride intRot.
+    // Slot 0 sums positions {0, intRot, 2*intRot, ...}: 256 values.
+    int intRot = (int)slots / inf.size.hidDim;
+    double expected = 0.0;
+    for (int h = 0; h < inf.size.hidDim; ++h)
+        expected += x[h * intRot];
+
+    EXPECT_NEAR(vals[0], expected, 1e-2);
+    std::cout << "ComputeAverage (varying) result[0]=" << vals[0]
+              << " expected=" << expected << "\n";
+}
+
 TEST_F(OpsTest, ComputeVariance_Constant) {
     const CC& cc = ctx->cc;
     const size_t slots = cc->GetRingDimension() / 2;
