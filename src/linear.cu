@@ -49,19 +49,21 @@ Ctx linear_interleaved(Inference& inf, const Ctx& x_in,
         outRot = hidDim * expDim / (numSlots * inRot);
     }
 
+    int d_pre = (expand >= 0) ? hidDim : expDim;
+
     auto& weight = inf.w.at(wname);
     std::vector<Ctx> ctRot(inRot);
     std::vector<Ctx> partSum(weight.size());
 
     Ctx x = x_in->Clone();
     for (int i = 1; i < preProc; i *= 2) {
-        Ctx tmp = cc->EvalRotate(x, rot(inf, i * (preProc - 1)));
+        Ctx tmp = cc->EvalRotate(x, rot(inf, i * (d_pre - 1)));
         cc->EvalAddInPlace(x, tmp);
     }
 
     ctRot[0] = x;
     for (int i = 1; i < inRot; ++i) {
-        ctRot[i] = cc->EvalRotate(ctRot[i - 1], rot(inf, i * intRot));
+        ctRot[i] = cc->EvalRotate(x, rot(inf, i * intRot));
     }
 
     for (int i = 0; i < (int)weight.size(); ++i) {

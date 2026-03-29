@@ -28,89 +28,76 @@ protected:
         return decrypt(cc(), ct, inf.fhe->sk());
     }
 
-    // ── Paper encoding: square W ∈ ℝ^{d×d} ──
-    //   p_{j,k}[i] = W[(i/t + i%t + j·t) % d,  (i/t − k·t·r_i) % d]
-    //   where t = S/d, r_i = inRot
-    void install_square(const std::string& wname, const Mat& W, int d) {
+    // ── Correct encoding for d-1 preprocessing ──
+    //
+    // After d-1 preprocessing with input dim d_pre and K_pre = S/d_pre:
+    //   c'x[K_pre*i + s] = x[(i + s * stride) % d_pre]
+    //   where stride = d_pre / K_pre
+    //
+    // BSGS diagonal t = g*inRot + b.  At slot q:
+    //   row = sigma_in((q + b*intRot) % S)
+    //   col = output_index(m)  where m = ((q - g*inRot*intRot) % S) / K_post
+    //
+    // sigma_in(p) = (p/K_pre + (p%K_pre) * stride) % d_pre
+
+    void install_weights(const std::string& wname, const Mat& W,
+                         int d_in, int d_out) {
         int s = S();
-        int t = s / d;
-        int inRot  = (int)std::sqrt((double)((long long)d * d / (2 * s)));
-        int outRot = (int)((long long)d * d / ((long long)s * inRot));
+        int expand = (d_in > d_out) ? -1 : (d_in < d_out) ? 1 : 0;
+
+        int d_pre  = (expand >= 0) ? d_in : d_in;   // always d_in
+        int K_pre  = s / d_pre;
+        int stride = d_pre / K_pre;
+
+        int intRot = s / std::max(d_in, d_out);
+        int K_post;
+        if (expand <= 0)
+            K_post = s / d_out;
+        else
+            K_post = s / d_out;  // always S/d_out
+
+        int inRot, outRot;
+        if (expand == 0) {
+            inRot  = (int)std::sqrt((double)((long long)d_in * d_in / (2 * s)));
+            outRot = (int)((long long)d_in * d_in / ((long long)s * inRot));
+        } else {
+            inRot  = (int)std::sqrt((double)((long long)d_in * d_out / (2 * s)));
+            outRot = (int)((long long)d_in * d_out / ((long long)s * inRot));
+        }
         int nPt = inRot * outRot;
+        int alpha = (expand == 0) ? 1 : std::max(d_in, d_out) / std::min(d_in, d_out);
 
         inf.w[wname].clear();
-        for (int idx = 0; idx < nPt; ++idx) {
-            int j = idx % inRot;
-            int k = idx / inRot;
-            V sl(s);
-            for (int i = 0; i < s; ++i) {
-                int row = pmod(i / t + i % t + j * t, d);
-                int col = pmod(i / t - k * t * inRot, d);
-                sl[i] = W[row][col];
+        for (int t = 0; t < nPt; ++t) {
+            int b = t % inRot;
+            int g = t / inRot;
+            V sl(s, 0.0);
+            for (int q = 0; q < s; ++q) {
+                int q_x = (q + b * intRot) % s;
+                int row_raw = pmod(q_x / K_pre + (q_x % K_pre) * stride, d_pre);
+
+                int row;
+                if (expand == -1)
+                    row = row_raw / alpha + (row_raw % alpha) * d_out;
+                else
+                    row = row_raw;
+
+                int q_shifted = (q + s - g * inRot * intRot) % s;
+                int m = q_shifted / K_post;
+
+                int col;
+                if (expand == 1)
+                    col = m / alpha + (m % alpha) * d_in;
+                else
+                    col = m % d_out;
+
+                sl[q] = W[row][col];
             }
             inf.w[wname].push_back(cc()->MakeCKKSPackedPlaintext(sl));
         }
     }
 
-    // ── Paper encoding: up  W ∈ ℝ^{d × αd} ──
-    //   p_{j,k}[i] = W[(i/t + i%t + j·t) % d,
-    //                   (⌊i/t⌋ + (i/t')%α · d − k·t·r_i) % (αd)]
-    //   where t = S/d, t' = S/(αd)
-    void install_up(const std::string& wname, const Mat& W,
-                    int d, int alpha_d) {
-        int s = S();
-        int alpha = alpha_d / d;
-        int t  = s / d;
-        int tp = s / alpha_d;
-        int inRot  = (int)std::sqrt((double)((long long)d * alpha_d / (2 * s)));
-        int outRot = (int)((long long)d * alpha_d / ((long long)s * inRot));
-        int nPt = inRot * outRot;
-
-        inf.w[wname].clear();
-        for (int idx = 0; idx < nPt; ++idx) {
-            int j = idx % inRot;
-            int k = idx / inRot;
-            V sl(s);
-            for (int i = 0; i < s; ++i) {
-                int row = pmod(i / t + i % t + j * t, d);
-                int col = pmod(i / t + (i / tp % alpha) * d
-                               - k * t * inRot, alpha_d);
-                sl[i] = W[row][col];
-            }
-            inf.w[wname].push_back(cc()->MakeCKKSPackedPlaintext(sl));
-        }
-    }
-
-    // ── Paper encoding: down  W ∈ ℝ^{αd × d} ──
-    //   p_{j,k}[i] = W[(⌊i/t⌋ + (i/t')%α·d + i%t + j·t) % (αd),
-    //                   (i/t − k·t·r_i) % d]
-    //   where t = S/d, t' = S/(αd)
-    void install_down(const std::string& wname, const Mat& W,
-                      int alpha_d, int d) {
-        int s = S();
-        int alpha = alpha_d / d;
-        int t  = s / d;
-        int tp = s / alpha_d;
-        int inRot  = (int)std::sqrt((double)((long long)d * alpha_d / (2 * s)));
-        int outRot = (int)((long long)d * alpha_d / ((long long)s * inRot));
-        int nPt = inRot * outRot;
-
-        inf.w[wname].clear();
-        for (int idx = 0; idx < nPt; ++idx) {
-            int j = idx % inRot;
-            int k = idx / inRot;
-            V sl(s);
-            for (int i = 0; i < s; ++i) {
-                int row = pmod(i / t + (i / tp % alpha) * d
-                               + i % t + j * t, alpha_d);
-                int col = pmod(i / t - k * t * inRot, d);
-                sl[i] = W[row][col];
-            }
-            inf.w[wname].push_back(cc()->MakeCKKSPackedPlaintext(sl));
-        }
-    }
-
-    // ── Input: square / up  (d-dimensional, stride t = S/d) ──
+    // ── Input: square / up  (d_in-dimensional, stride K = S/d_in) ──
     Ctx enc_simple(const V& x, int d) {
         int s = S(), t = s / d;
         V sl(s, 0.0);
@@ -119,16 +106,16 @@ protected:
         return cc()->Encrypt(inf.fhe->pk(), pt);
     }
 
-    // ── Input: down  (αd-dimensional, interleaved stride t' = S/(αd)) ──
-    //   c^x[m·t'] = x[⌊m/α⌋ + (m%α)·d]    for m = 0 … αd−1
-    Ctx enc_down(const V& x, int alpha_d, int d) {
+    // ── Input: down  (d_in-dimensional, interleaved stride K' = S/d_in) ──
+    //   c^x[m·K'] = x[m/α + (m%α)·d_out]    for m = 0 … d_in−1
+    Ctx enc_down(const V& x, int d_in, int d_out) {
         int s = S();
-        int alpha = alpha_d / d;
-        int tp = s / alpha_d;
+        int alpha = d_in / d_out;
+        int kp = s / d_in;
         V sl(s, 0.0);
-        for (int m = 0; m < alpha_d; ++m) {
-            int idx = m / alpha + (m % alpha) * d;
-            sl[m * tp] = x[idx];
+        for (int m = 0; m < d_in; ++m) {
+            int idx = m / alpha + (m % alpha) * d_out;
+            sl[m * kp] = x[idx];
         }
         auto pt = cc()->MakeCKKSPackedPlaintext(sl);
         return cc()->Encrypt(inf.fhe->pk(), pt);
@@ -143,13 +130,13 @@ protected:
         return y;
     }
 
-    V extract_up(const V& raw, int d, int alpha_d) {
-        int alpha = alpha_d / d;
-        int tp = S() / alpha_d;
-        V y(alpha_d);
-        for (int m = 0; m < alpha_d; ++m) {
-            int idx = m / alpha + (m % alpha) * d;
-            y[idx] = raw[m * tp];
+    V extract_up(const V& raw, int d_in, int d_out) {
+        int alpha = d_out / d_in;
+        int kp = S() / d_out;
+        V y(d_out);
+        for (int m = 0; m < d_out; ++m) {
+            int idx = m / alpha + (m % alpha) * d_in;
+            y[idx] = raw[m * kp];
         }
         return y;
     }
@@ -166,19 +153,14 @@ protected:
 
     void run(const char* wname, int d_in, int d_out) {
         std::mt19937 rng(d_in * 1000 + d_out);
-        std::uniform_real_distribution<double> wdist(-0.01, 0.01);
-        std::uniform_real_distribution<double> xdist(-0.1, 0.1);
+        std::normal_distribution<double> wdist(0.0, 1.0 / std::sqrt((double)d_in));
+        std::normal_distribution<double> xdist(0.0, 1.0);
 
         Mat W(d_in, V(d_out));
         for (auto& row : W)
             for (auto& v : row) v = wdist(rng);
 
-        if (d_in == d_out)
-            install_square(wname, W, d_in);
-        else if (d_in < d_out)
-            install_up(wname, W, d_in, d_out);
-        else
-            install_down(wname, W, d_in, d_out);
+        install_weights(wname, W, d_in, d_out);
 
         for (int trial = 0; trial < 3; ++trial) {
             V x(d_in);
@@ -200,7 +182,7 @@ protected:
             for (int i = 0; i < d_out; ++i)
                 max_err = std::max(max_err,
                                    std::abs(actual[i] - expected[i]));
-            EXPECT_LT(max_err, 0.5)
+            EXPECT_LT(max_err, 0.01)
                 << wname << " " << d_in << "x" << d_out
                 << " trial " << trial << " max_err=" << max_err;
         }
