@@ -14,7 +14,6 @@ Ctx bootstrap_to(Inference& inf, const Ctx& ct,
         return ct;
     }
 
-    Timer t;
     Ctx fresh = cc->EvalBootstrap(ct);
 
     if (target_remaining > 0) {

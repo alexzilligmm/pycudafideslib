@@ -45,16 +45,16 @@ protected:
         );
         inf = make_inf(ctx, DEPTH, OVERHEAD);
         // GPT-2 small: padded hD=1024 (must divide S=32768), real=768
-        inf.size.hidDim     = 1024;
-        inf.size.realHidDim = 768;
-        inf.size.ffDim      = 4096;
+        inf.size.hidDim   = 1024;
+        inf.size.dim      = 768;
+        inf.size.expDim   = 4096;
         std::cout << "--- CONTEXT INITIALIZED (once) ---\n"
                   << "N=" << (1 << LOG_N)
                   << " slots=" << (1 << (LOG_N-1))
                   << " L=" << DEPTH << " K=" << OVERHEAD
                   << " total=" << (DEPTH + OVERHEAD)
-                  << " hD=" << inf.size.hidDim
-                  << " fD=" << inf.size.ffDim << "\n";
+                  << " hidDim=" << inf.size.hidDim
+                  << " expDim=" << inf.size.expDim << "\n";
     }
 };
 

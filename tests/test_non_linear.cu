@@ -131,7 +131,7 @@ TEST_F(NonLinearTest, NormApprox) {
 
     // No-padding scenario: all hidDim positions are real values.
     // Restore realHidDim after test (NormApproxWithPadding resets it anyway).
-    inf.size.realHidDim = hD;
+    inf.size.dim = hD;
 
     // 5 distinct values cycling across hidDim; variance ≈ 0.02.
     const double raw[]   = { 0.1, 0.2, 0.3, 0.4, 0.5 };
@@ -189,7 +189,7 @@ TEST_F(NonLinearTest, NormApproxWithPadding) {
     const int paddedHD = 1024;
     const int realHD   = 768;
     inf.size.hidDim    = paddedHD;
-    inf.size.realHidDim = realHD;
+    inf.size.dim = realHD;
 
     const int intRot = S / paddedHD;      // 32
 

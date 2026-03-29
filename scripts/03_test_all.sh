@@ -4,7 +4,7 @@
 #SBATCH --time 02:00:00
 #SBATCH --qos normal
 #SBATCH -p boost_usr_prod
-#SBATCH --mem=32G
+#SBATCH --mem=128G
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
@@ -15,7 +15,7 @@
 # Build + run all test binaries individually (not via ctest) so each runs
 # even if a previous one crashes at teardown (heap corruption).
 #
-# Submit:   sbatch scripts/03_run_tests.sh
+# Submit:   sbatch scripts/07_test_all.sh
 
 echo "=== Build + run cuda_cachemir tests ==="
 echo "Host: $(hostname)  |  Date: $(date)"

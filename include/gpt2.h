@@ -4,7 +4,7 @@
 #include "nonlinear.h"
 
 Ctx linear_interleaved(Inference& inf, const Ctx& x,
-                       const std::string& wname, int d_in, int d_out = 0);
+                       const std::string& wname, int d_in, int d_out);
 
 Ctx qkv_q(Inference& inf, const Ctx& x);
 Ctx qkv_k(Inference& inf, const Ctx& x);

@@ -1,5 +1,5 @@
 #include "gpt2.h"
-#include "gpt2_optimized_config.h"
+#include "gpt2_config.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -25,27 +25,32 @@ std::vector<int32_t> compute_gpt2_rot_indices(
     auto add_interleaved_rots = [&](int d_in, int d_out) {
         const int t_in  = S / d_in;
         const int t_out = S / d_out;
+        const int intRot = S / std::max(d_in, d_out);
         const int n_pt  = d_in * d_out / S;
 
-        int r_i = std::max(1, (int)std::sqrt((double)n_pt));
-        while (n_pt % r_i != 0 && r_i > 1) --r_i;
+        int inRot = std::max(1, (int)std::sqrt((double)(d_in * d_out / (2 * S))));
+        int outRot = n_pt / inRot;
 
-        int t_baby = std::max(t_in, t_out);
-        if (t_baby > 1) {
-            indices.insert(t_baby);
-            indices.insert(-t_baby);
+        for (int i = 1; i < inRot; ++i) {
+            indices.insert(i * intRot);
+            indices.insert(-(i * intRot));
         }
 
-        int gs = std::max(t_in, t_out) * r_i;
-        if (gs != t_baby) {
-            indices.insert(gs);
-            indices.insert(-gs);
+        for (int i = 1; i < outRot; ++i) {
+            int rv = i * intRot * inRot;
+            indices.insert(rv);
+            indices.insert(-rv);
         }
 
         for (int step = 1; step < t_in; step *= 2) {
-            int rv = step * (d_in - 1);
+            int rv = step * (t_in - 1);
             indices.insert(rv % S);
             indices.insert(-(rv % S));
+        }
+
+        for (int step = 1; step < t_out; step *= 2) {
+            indices.insert(step);
+            indices.insert(-step);
         }
     };
 
@@ -97,7 +102,10 @@ Inference make_gpt2(int logN, int hidDim, int ffDim,
                     int seqLen, int numHeads, bool parallel,
                     bool bench) {
     Inference inf;
-    inf.size     = {hidDim, ffDim, numHeads, seqLen, 0, 0};
+    inf.size.hidDim   = hidDim;
+    inf.size.expDim   = ffDim;
+    inf.size.numHeads = numHeads;
+    inf.size.seqLen   = seqLen;
     inf.logN     = logN;
     inf.parallel = parallel;
 
@@ -144,11 +152,11 @@ Ptx gpt2_rand_plaintext(Inference& inf) {
 
 void gpt2_prepare_weights(Inference& inf, const std::vector<std::string>& names) {
     std::cout << "Preparing GPT-2 weights (interleaved)..." << std::endl;
-    const int hD = inf.size.hidDim, fD = inf.size.ffDim, S = inf.slots;
+    const int hidDim = inf.size.hidDim, expDim = inf.size.expDim, numSlots = inf.slots;
     for (const auto& n : names) {
         int cnt;
-        if      (n == "q" || n == "k" || n == "v" || n == "out") cnt = hD * hD / S;
-        else if (n == "up" || n == "down")                        cnt = hD * fD / S;
+        if      (n == "q" || n == "k" || n == "v" || n == "out") cnt = hidDim * hidDim / numSlots;
+        else if (n == "up" || n == "gate" || n == "down")         cnt = hidDim * expDim / numSlots;
         else throw std::runtime_error("Unknown GPT-2 weight: " + n);
 
         inf.w[n].clear();

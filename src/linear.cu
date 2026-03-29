@@ -15,61 +15,126 @@ void rotate_add_inplace(Inference& inf, Ctx& x, int step) {
     cc->EvalAddInPlace(x, tmp);
 }
 
-Ctx linear(Inference& inf, const Ctx& x, const std::string& wname, int in_dim, int out_dim) {
+//   expand == 0  ↔  d_in == d_out  (QKV, Out)
+//   expand == 1  ↔  d_in < d_out   (Up, Gate)
+//   expand == -1 ↔  d_in > d_out   (Down)
+Ctx linear_interleaved(Inference& inf, const Ctx& x_in,
+                       const std::string& wname, int d_in, int d_out) {
+    const CC& cc = inf.cc();
     int numSlots = inf.slots;
-    if(wname == "up"){
-       int preProc = numSlots / in_dim
-    } else if(wname == "down"){
-        postProc = numSlots / out_dim
+    int hidDim   = inf.size.hidDim;
+    int expDim   = inf.size.expDim;
+
+    int expand = (d_in > d_out) ? -1 : (d_in < d_out) ? 1 : 0;
+    int preProc, postProc, inRot, outRot;
+    int intRot = numSlots / std::max(d_in, d_out);
+
+
+    if (expand >= 0) {
+        preProc = numSlots / hidDim;
     } else {
-        int preProc = numSlots / out_dim
+        preProc = numSlots / expDim;
     }
-    
+    if (expand <= 0) {
+        postProc = numSlots / hidDim;
+    } else {
+        postProc = numSlots / expDim;
+    }
 
+    if (expand == 0) {
+        inRot  = (int)std::sqrt((double)(hidDim * hidDim / (2 * numSlots)));
+        outRot = hidDim * hidDim / (numSlots * inRot);
+    } else {
+        inRot  = (int)std::sqrt((double)(hidDim * expDim / (2 * numSlots)));
+        outRot = hidDim * expDim / (numSlots * inRot);
+    }
 
+    auto& weight = inf.w.at(wname);
+    std::vector<Ctx> ctRot(inRot);
+    std::vector<Ctx> partSum(weight.size());
+
+    Ctx x = x_in->Clone();
+    for (int i = 1; i < preProc; i *= 2) {
+        Ctx tmp = cc->EvalRotate(x, rot(inf, i * (preProc - 1)));
+        cc->EvalAddInPlace(x, tmp);
+    }
+
+    ctRot[0] = x;
+    for (int i = 1; i < inRot; ++i) {
+        ctRot[i] = cc->EvalRotate(ctRot[i - 1], rot(inf, i * intRot));
+    }
+
+    for (int i = 0; i < (int)weight.size(); ++i) {
+        partSum[i] = cc->EvalMult(ctRot[i % inRot], weight[i]);
+        if (i % inRot > 0) {
+            cc->EvalAddInPlace(partSum[i - i % inRot], partSum[i]);
+        }
+    }
+
+    for (int i = 1; i < outRot; ++i) {
+        partSum[i * inRot] = cc->EvalRotate(
+            partSum[i * inRot],
+            rot(inf, i * intRot * inRot));
+    }
+
+    for (int i = 1; i < outRot; ++i) {
+        cc->EvalAddInPlace(partSum[0], partSum[i * inRot]);
+    }
+
+    for (int i = 1; i < postProc; i *= 2) {
+        Ctx tmp = cc->EvalRotate(partSum[0], rot(inf, i));
+        cc->EvalAddInPlace(partSum[0], tmp);
+    }
+
+    return partSum[0];
 }
 
-Ctx qkv_q(Inference& inf, const Ctx& x) { return linear(inf, x, "q", inf.size.hidDim); }
-Ctx qkv_k(Inference& inf, const Ctx& x) { return linear(inf, x, "k", inf.size.hidDim); }
-Ctx qkv_v(Inference& inf, const Ctx& x) { return linear(inf, x, "v", inf.size.hidDim); }
+Ctx qkv_q(Inference& inf, const Ctx& x) {
+    return linear_interleaved(inf, x, "q", inf.size.hidDim, inf.size.hidDim);
+}
+Ctx qkv_k(Inference& inf, const Ctx& x) {
+    return linear_interleaved(inf, x, "k", inf.size.hidDim, inf.size.hidDim);
+}
+Ctx qkv_v(Inference& inf, const Ctx& x) {
+    return linear_interleaved(inf, x, "v", inf.size.hidDim, inf.size.hidDim);
+}
 
 static Ctx rope_single(Inference& inf, const Ctx& x) {
     const CC& cc  = inf.cc();
-    const int intRot = inf.slots / inf.size.hidDim;
-    auto& w = inf.w.at("RoPE");  // [cos, sin+, sin-]
+    int numSlots = inf.slots;
+    int hidDim   = inf.size.hidDim;
+    int intRot   = numSlots / hidDim;
+    auto& weight = inf.w.at("RoPE");  // [cos, sin+, sin-]
 
-    Ctx xcos  = cc->EvalMult(x, w[0]);
+    Ctx xCos  = cc->EvalMult(x, weight[0]);
 
-    Ctx xsin0 = cc->EvalMult(x, w[1]);
-    xsin0     = cc->EvalRotate(xsin0, rot(inf, intRot));
+    Ctx xSin0 = cc->EvalMult(x, weight[1]);
+    xSin0     = cc->EvalRotate(xSin0, rot(inf, intRot));
 
-    Ctx xsin1 = cc->EvalMult(x, w[2]);
-    xsin1     = cc->EvalRotate(xsin1, rot(inf, -intRot));
+    Ctx xSin1 = cc->EvalMult(x, weight[2]);
+    xSin1     = cc->EvalRotate(xSin1, rot(inf, -intRot));
 
-    Ctx y = cc->EvalAdd(xcos, xsin0);
-    cc->EvalAddInPlace(y, xsin1);
+    Ctx y = cc->EvalAdd(xCos, xSin0);
+    cc->EvalAddInPlace(y, xSin1);
     return y;
 }
 
 std::tuple<Ctx, Ctx> rope(Inference& inf,
                            const Ctx& q, const Ctx& k) {
-    Ctx yq, yk;
-
-    yq = rope_single(inf, q);
-    yk = rope_single(inf, k);
-    
-    return {yq, yk};
+    Ctx yQ = rope_single(inf, q);
+    Ctx yK = rope_single(inf, k);
+    return {yQ, yK};
 }
 
 void cache_kv(Inference& inf, const Ctx& k, const Ctx& v) {
-    const CC& cc    = inf.cc();
-    const int S     = inf.slots;
-    const int hD    = inf.size.hidDim;
-    const int nH    = inf.size.numHeads;
-    const int seqL  = inf.size.seqLen;
-    const int intRot = S / hD;
-    const int intIdx = seqL % intRot;
-    const int midIdx = seqL / intRot;
+    const CC& cc     = inf.cc();
+    int numSlots     = inf.slots;
+    int hidDim       = inf.size.hidDim;
+    int numHeads     = inf.size.numHeads;
+    int seqLen       = inf.size.seqLen;
+    int intRot       = numSlots / hidDim;
+    int intIdx       = seqLen % intRot;
+    int midIdx       = seqLen / intRot;
 
     auto& kCache = inf.cache.at("k");
     if (intIdx == 0) {
@@ -79,44 +144,40 @@ void cache_kv(Inference& inf, const Ctx& k, const Ctx& v) {
         cc->EvalAddInPlace(kCache[midIdx], k_rot);
     }
 
-    const int rot_idx = intIdx + S * nH * midIdx / hD;
+    int rot_idx = intIdx + numSlots * numHeads * midIdx / hidDim;
     auto& vCache    = inf.cache.at("v");
     auto& cacheMask = inf.cache_mask;
     Ctx v_rot = cc->EvalRotate(v, rot(inf, rot_idx));
-    const int hd = hD / nH;
 
-    for (int i = 0; i < hd; ++i) {
+    for (int i = 0; i < hidDim / numHeads; ++i) {
         Ctx tmp = cc->EvalMult(v_rot, cacheMask[i]);
         cc->EvalAddInPlace(vCache[i], tmp);
     }
-    
 }
 
 Ctx qk_transpose(Inference& inf, const Ctx& q) {
     const CC&   cc     = inf.cc();
     const auto& kCache = inf.cache.at("k");
-    Ptx  kmask  = inf.mask.at("k");
-    const int   S      = inf.slots;
-    const int   hD     = inf.size.hidDim;
-    const int   nH     = inf.size.numHeads;
-    const int   nrot   = hD / nH;          // head dimension
-
-    const int   inner_step = nH * S / hD;
-    const int   seqL   = inf.size.seqLen;
-    const int   space  = S * S / (seqL * hD);
-    const int   n      = (int)kCache.size();
+    Ptx  mask   = inf.mask.at("k");
+    int numSlots = inf.slots;
+    int hidDim   = inf.size.hidDim;
+    int numHeads = inf.size.numHeads;
+    int seqLen   = inf.size.seqLen;
+    int num_rot  = hidDim / numHeads;
+    int space    = numSlots * numSlots / (seqLen * hidDim);
+    int n        = (int)kCache.size();
 
     std::vector<Ctx> results(n);
 
     auto do_block = [&](int i) {
-        Ctx tmp = cc->EvalMult(q, kCache[i]);
-        for (int j = 1; j < nrot; j *= 2) {
-            Ctx rotated = cc->EvalRotate(tmp, rot(inf, inner_step * j));
-            cc->EvalAddInPlace(tmp, rotated);
+        Ctx ctTmp = cc->EvalMult(q, kCache[i]);
+        for (int j = 1; j < num_rot; j *= 2) {
+            Ctx tmp = cc->EvalRotate(ctTmp, rot(inf, numHeads * numSlots / hidDim * j));
+            cc->EvalAddInPlace(ctTmp, tmp);
         }
-        tmp = cc->EvalMult(tmp, kmask);
-        if (i > 0) tmp = cc->EvalRotate(tmp, rot(inf, S - space * i));
-        results[i] = std::move(tmp);
+        ctTmp = cc->EvalMult(ctTmp, mask);
+        if (i > 0) ctTmp = cc->EvalRotate(ctTmp, rot(inf, numSlots - space * i));
+        results[i] = std::move(ctTmp);
     };
 
     for (int i = 0; i < n; ++i) do_block(i);
@@ -131,32 +192,29 @@ Ctx qk_transpose(Inference& inf, const Ctx& q) {
 Ctx attn_v(Inference& inf, const Ctx& s) {
     const CC&   cc     = inf.cc();
     const auto& vCache = inf.cache.at("v");
-    Ptx  vmask  = inf.mask.at("v");
-    const int   S      = inf.slots;
-    const int   nH     = inf.size.numHeads;
-    const int   hD     = inf.size.hidDim;
-    const int   seqL   = inf.size.seqLen;
-    const int   hd     = hD / nH;
-    const int   inRot  = (int)std::sqrt((double)(hd / 2));
-    const int   outRot = inRot * 2;
-    const int   nv     = (int)vCache.size();
-    const int   space  = S * nH / hD;
+    Ptx  mask    = inf.mask.at("v");
+    int numSlots = inf.slots;
+    int numHeads = inf.size.numHeads;
+    int hidDim   = inf.size.hidDim;
+    int seqLen   = inf.size.seqLen;
+    int inRot    = (int)std::sqrt((double)(hidDim / (2 * numHeads)));
+    int outRot   = inRot * 2;
+    int nv       = (int)vCache.size();
+    int space    = numSlots * numHeads / hidDim;
 
     Ctx sb = s;
-    for (int step = nH * seqL; step < S; step *= 2)
+    for (int step = numHeads * seqLen; step < numSlots; step *= 2)
         rotate_add_inplace(inf, sb, step);
 
-    std::vector<Ctx> sRot(inRot);
-    sRot[0] = sb;
+    std::vector<Ctx> ctRot(inRot);
+    ctRot[0] = sb;
     for (int i = 1; i < inRot; ++i)
-        sRot[i] = cc->EvalRotate(sRot[i-1], rot(inf, space));
+        ctRot[i] = cc->EvalRotate(ctRot[i-1], rot(inf, space));
 
     std::vector<Ctx> partSum(nv);
-    auto do_mult = [&](int i) {
-        partSum[i] = cc->EvalMult(sRot[i % inRot], vCache[i]);
-    };
-
-    for (int i = 0; i < nv; ++i) do_mult(i);
+    for (int i = 0; i < nv; ++i) {
+        partSum[i] = cc->EvalMult(ctRot[i % inRot], vCache[i]);
+    }
 
     for (int i = 0; i < nv; ++i) {
         if (i % inRot > 0) {
@@ -169,21 +227,23 @@ Ctx attn_v(Inference& inf, const Ctx& s) {
         cc->EvalAddInPlace(partSum[0], partSum[i * inRot]);
     }
 
-    for (int step = 1; step < S / hD; step *= 2)
+    for (int step = 1; step < numSlots / hidDim; step *= 2)
         rotate_add_inplace(inf, partSum[0], step);
 
-    Ctx result = cc->EvalMult(partSum[0], vmask);
-    return result;
+    Ctx y = cc->EvalMult(partSum[0], mask);
+    return y;
 }
 
 Ctx out_proj(Inference& inf, const Ctx& x) {
-    return linear(inf, x, "out", inf.size.hidDim);
+    return linear_interleaved(inf, x, "out", inf.size.hidDim, inf.size.hidDim);
 }
 
-std::pair<Ctx, Ctx> up_proj(Inference& inf, const Ctx& x) {
-    return linear(inf, x, "up", inf.size.hidDim, inf.size.ffDim)
+std::pair<Ctx, Ctx> up_gate(Inference& inf, const Ctx& x) {
+    Ctx up   = linear_interleaved(inf, x, "up", inf.size.hidDim, inf.size.expDim);
+    Ctx gate = linear_interleaved(inf, x, "gate", inf.size.hidDim, inf.size.expDim);
+    return {up, gate};
 }
 
 Ctx down_proj(Inference& inf, const Ctx& x) {
-    return linear(inf, x, "down", inf.size.ffDim, inf.size.hidDim);
+    return linear_interleaved(inf, x, "down", inf.size.expDim, inf.size.hidDim);
 }
