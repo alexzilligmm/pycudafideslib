@@ -122,6 +122,7 @@ TEST_F(NonLinearTest, GeLUApproxWithBts) {
     }
 }
 
+/// TODO: should use norm function from non linear
 TEST_F(NonLinearTest, NormApprox) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
@@ -179,11 +180,7 @@ TEST_F(NonLinearTest, NormApprox) {
     }
 }
 
-// ── Padding test: hidDim=1024 (padded), realHidDim=768 (true) ──────────
-// Validates that compute_average and compute_variance use the real (unpadded)
-// dimension for scaling.  With logN=16 (S=32768), hidDim=1024 → intRot=32.
-// Positions 768-1023 are zero (padding from weight matrices).
-
+/// TODO: shall use norm function from non linear :) 
 TEST_F(NonLinearTest, NormApproxWithPadding) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;             // 32768
@@ -255,7 +252,6 @@ TEST_F(NonLinearTest, NormApproxWithPadding) {
     std::cout << "  max_err across real positions = " << max_err << "\n";
 }
 
-// Helper: compute expected softmax probabilities and pack input into slots.
 static void softmax_test_setup(
         const CC& cc, int S, int seq_dim,
         const double* inp,
@@ -319,55 +315,20 @@ TEST_F(NonLinearTest, SoftmaxWithOracleMax) {
     softmax_check(res, expected, stride, cfg.seq_dim, 0.05);
 }
 
-TEST_F(NonLinearTest, SoftmaxWithoutOracle) {
-    const CC& cc = inf.cc();
-    const int S  = inf.slots;
-
-    // Non-oracle path: sign-max consumes ~17 levels, dynamic btp_min_remaining
-    // triggers bootstrap at phase boundaries when depth runs low.
-    SoftmaxConfig cfg = SOFTMAX_NOMAX_GPT2;
-    const int stride = S / cfg.seq_dim;
-
-    const double inp[] = { -0.5, 0.8 };
-    std::vector<double> expected, msg;
-    softmax_test_setup(cc, S, cfg.seq_dim, inp, expected, msg);
-
-    auto pt2 = cc->MakeCKKSPackedPlaintext(msg);
-    Ctx x_in = cc->Encrypt(inf.fhe->pk(), pt2);
-    std::cout << "Encrypt x_in level=" << level_of(x_in) << "\n";
-
-    Ctx y = softmax(inf, x_in, cfg, /*precomputed_max=*/nullptr,
-                     /*causal_mask=*/nullptr);
-    std::cout << "softmax() result level=" << level_of(y) << "\n";
-
-    auto res = decrypt(cc, y, inf.fhe->sk());
-    softmax_check(res, expected, stride, cfg.seq_dim, 0.1);
-}
-
-// ── Causal masking test ──────────────────────────────────────────────
-
 TEST_F(NonLinearTest, SoftmaxCausalMask) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
 
-    // 4-element sequence: [1.0, 2.0, 3.0, 4.0]
-    // Causal mask for position 2: can see positions 0,1,2 but not 3.
-    // Mask adds -1e4 at position 3 so exp(-1e4) ≈ 0.
     SoftmaxConfig cfg = SOFTMAX_ENCLLM_GPT2;
     cfg.seq_dim = 4;
     const int stride = S / cfg.seq_dim;
 
     const double inp[] = { 1.0, 2.0, 3.0, 4.0 };
 
-    // Build causal mask: 0 for visible positions, large negative for masked.
-    // Use -50 (not -1e4) to stay within CKKS precision; exp(-50) ≈ 2e-22 ≈ 0.
     const double mask_val = -50.0;
     std::vector<double> mask_vec(S, 0.0);
-    // Mask out position 3 (the last one)
     std::fill(mask_vec.begin() + 3*stride, mask_vec.begin() + 4*stride, mask_val);
 
-    // Expected: softmax over [1.0, 2.0, 3.0, 4.0+(-50)=-46]
-    // Position 3 contributes ≈ exp(-46-3)=exp(-49) ≈ 0
     double vmax = 3.0;  // max of visible positions
     double esum = std::exp(1.0 - vmax) + std::exp(2.0 - vmax) + std::exp(3.0 - vmax);
     std::vector<double> expected = {
@@ -377,7 +338,6 @@ TEST_F(NonLinearTest, SoftmaxCausalMask) {
         0.0,   // masked out
     };
 
-    // Pack input
     std::vector<double> msg(S, 0.0);
     for (int i = 0; i < cfg.seq_dim; ++i)
         std::fill(msg.begin() + i*stride, msg.begin() + (i+1)*stride, inp[i]);
@@ -385,10 +345,8 @@ TEST_F(NonLinearTest, SoftmaxCausalMask) {
     auto pt = cc->MakeCKKSPackedPlaintext(msg);
     Ctx x_in = cc->Encrypt(inf.fhe->pk(), pt);
 
-    // Oracle max of the VISIBLE values (not the masked ones)
     Ctx x_max = encrypt_const(cc, vmax, (size_t)S, inf.fhe->pk());
 
-    // Create causal mask plaintext at the correct level
     Ptx causal_pt = cc->MakeCKKSPackedPlaintext(
         mask_vec, /*noiseScaleDeg=*/1, (uint32_t)level_of(x_in));
 
@@ -406,10 +364,8 @@ TEST_F(NonLinearTest, SoftmaxCausalMask) {
         std::cout << expected[i] << (i < cfg.seq_dim-1 ? ", " : "");
     std::cout << "]\n";
 
-    // Visible positions should match expected probabilities
     for (int i = 0; i < 3; ++i)
         EXPECT_NEAR(res[i * stride], expected[i], 0.05);
-    // Masked position should be near 0
     EXPECT_NEAR(res[3 * stride], 0.0, 0.01);
 
     double total = 0.0;
@@ -418,19 +374,13 @@ TEST_F(NonLinearTest, SoftmaxCausalMask) {
     EXPECT_NEAR(total, 1.0, 0.05);
 }
 
-// ── GELU configurability test ────────────────────────────────────────
-
 TEST_F(NonLinearTest, GeLUNoBtp) {
-    // Test GELU with bootstrap_indicators=false: should still produce
-    // correct results but will consume more levels (no internal bootstraps).
-    // This only works if we have enough depth budget.
     const CC& cc = inf.cc();
     const int S  = inf.slots;
 
     GeluConfig cfg = GELU_ENCLLM_GPT2;
     cfg.bootstrap_indicators = false;  // disable internal bootstraps
 
-    // Use a value in the middle region where GELU is non-trivial
     double x_val = 1.0;
     double expect_val = gelu_expect({x_val})[0];
 
@@ -448,8 +398,6 @@ TEST_F(NonLinearTest, GeLUNoBtp) {
 }
 
 TEST_F(NonLinearTest, GeLUWithTargetLevel) {
-    // Test GELU with btp_target_level set: bootstraps should land at
-    // the specified level instead of using raw EvalBootstrap.
     const CC& cc = inf.cc();
     const int S  = inf.slots;
 

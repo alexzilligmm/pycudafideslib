@@ -8,21 +8,14 @@ Ctx bootstrap_to(Inference& inf, const Ctx& ct,
     uint32_t consumed = level_of(ct);
     uint32_t remaining = (total > consumed) ? (total - consumed) : 0u;
 
-    // Skip bootstrap if we already have enough depth
     if (remaining >= target_remaining) {
         std::cout << "bootstrap_to(" << target_remaining
                   << "): already at " << remaining << " remaining, skip\n";
         return ct;
     }
 
-    std::cout << "Bootstrapping (remaining " << remaining
-              << " → target " << target_remaining << ")...\n";
-
     Timer t;
     Ctx fresh = cc->EvalBootstrap(ct);
-
-    std::cout << "  bootstrap done in " << t.elapsed_s()
-              << " s, raw output level " << level_of(fresh) << "\n";
 
     if (target_remaining > 0) {
         uint32_t fresh_con  = level_of(fresh);
@@ -32,6 +25,5 @@ Ctx bootstrap_to(Inference& inf, const Ctx& ct,
             drop_levels(cc, fresh, want_con - fresh_con);
     }
 
-    std::cout << "  output level after target drop: " << level_of(fresh) << "\n";
     return fresh;
 }

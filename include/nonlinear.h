@@ -14,8 +14,6 @@ struct GeluConfig {
 
 //                                                 rescale  btp_ind  btp_lvl
 inline const GeluConfig GELU_ENCLLM_GPT2  { 1.0 / 67.0,  true,    0 }; // 1/(absmax+4), absmax~63 from profiling
-inline const GeluConfig GELU_CACHEMIR_GPT2 { 1.0 / 10.0, true,    0 };
-inline const GeluConfig GELU_HEAWARE_GPT2  { 1.0 / 10.0, true,    0 };
 
 enum class NRInitMethod { LINEAR, REMEZ, TAYLOR };
 
@@ -42,14 +40,7 @@ struct NormConfig {
 
 //                                              method               coeffs          NR  GS                                              z0    rescale   d_min   d_max
 inline const NormConfig NORM_ENCLLM_GPT2   { NRInitMethod::TAYLOR, {},               16,  14, {}, {}, 1.0, 1.0, 5, /*taylor_z0=*/0.5, /*taylor_rescale=*/1.0, /*gs_d_min=*/1e-6, /*gs_d_max=*/1.0 };
-inline const NormConfig NORM_ENCLLM_LLAMA  { NRInitMethod::TAYLOR, {},               16,  14, {}, {}, 1.0, 1.0, 5, /*taylor_z0=*/0.5, /*taylor_rescale=*/1.0, /*gs_d_min=*/1e-6, /*gs_d_max=*/1.0 };
-inline const NormConfig NORM_CACHEMIR_GPT2 { NRInitMethod::LINEAR, { -42.1,  7.37 },  4,  2 }; // TODO: calibrate
-inline const NormConfig NORM_CACHEMIR_LLAMA{ NRInitMethod::LINEAR, { -42.1,  7.37 },  4,  2 }; // TODO: calibrate
-inline const NormConfig NORM_HEAWARE_GPT2  { NRInitMethod::REMEZ,  { -42.1,  7.37 },  3,  2 }; // TODO: calibrate
-inline const NormConfig NORM_HEAWARE_LLAMA { NRInitMethod::REMEZ,  { -42.1,  7.37 },  3,  2 }; // TODO: calibrate
 
-Ctx silu      (Inference& inf, const Ctx& x);
-Ctx silu_ffDim(Inference& inf, const Ctx& x);
 
 Ctx sign      (Inference& inf, const Ctx& x, const DepthGuard& dg = {});
 Ctx lt_function(Inference& inf, const Ctx& x, double value, double rescale_factor = 1.0,
@@ -59,8 +50,6 @@ Ctx gelu   (Inference& inf, const Ctx& x, const GeluConfig& cfg = GELU_ENCLLM_GP
 Ctx norm   (Inference& inf, const Ctx& x, int target_level_after_btp, const NormConfig& cfg = NORM_ENCLLM_GPT2);
 
 Ctx exp_approx(const CC& cc, const Ctx& x, int r);
-
-Ctx softmax_cachemir(Inference& inf, const Ctx& x, int target_level_after_btp, int temp);
 
 struct SoftmaxConfig {
     int  exp_r          = 7;
@@ -82,13 +71,9 @@ struct SoftmaxConfig {
 // if remaining is insufficient (exp needs exp_r+1 levels + 1 for final mult).
 // btp_lvl ≤ 13 to match paper's L=13 (max level after bootstrap).
 inline const SoftmaxConfig SOFTMAX_ENCLLM_GPT2   { 7,  14,  4,  {},       6,      9,       9,       0.628,   205.0 }; // paper: softmax gets 0→9
-inline const SoftmaxConfig SOFTMAX_ENCLLM_LLAMA  { 7,  14,  4,  {},       6,      9,       9,       3.8,     15.0 };
-inline const SoftmaxConfig SOFTMAX_CACHEMIR_GPT2 { 5,   5,  4,  {},       6,      0,       9 };
-inline const SoftmaxConfig SOFTMAX_NOMAX_GPT2    { 5,   5,  2,  {},       6,      9,       9 };
 
 Ctx softmax(Inference& inf, const Ctx& x,
             const SoftmaxConfig& cfg = SOFTMAX_ENCLLM_GPT2,
             const Ctx& precomputed_max = nullptr,
             const Ptx& causal_mask = nullptr);
 
-Ctx argmax (Inference& inf, const Ctx& x);
