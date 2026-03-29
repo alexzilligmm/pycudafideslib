@@ -4,17 +4,28 @@
 Ctx bootstrap_to(Inference& inf, const Ctx& ct,
                   uint32_t target_remaining) {
     const CC& cc = inf.cc();
-    std::cout << "Bootstrapping (level " << level_of(ct) << ")...\n";
+    uint32_t total    = (uint32_t)inf.total_depth;
+    uint32_t consumed = level_of(ct);
+    uint32_t remaining = (total > consumed) ? (total - consumed) : 0u;
+
+    // Skip bootstrap if we already have enough depth
+    if (remaining >= target_remaining) {
+        std::cout << "bootstrap_to(" << target_remaining
+                  << "): already at " << remaining << " remaining, skip\n";
+        return ct;
+    }
+
+    std::cout << "Bootstrapping (remaining " << remaining
+              << " → target " << target_remaining << ")...\n";
 
     Timer t;
-    Ctx fresh = cc->EvalBootstrap(ct);   // FIDESlib GPU-accelerated circuit
+    Ctx fresh = cc->EvalBootstrap(ct);
 
     std::cout << "  bootstrap done in " << t.elapsed_s()
               << " s, raw output level " << level_of(fresh) << "\n";
 
     if (target_remaining > 0) {
-        uint32_t total      = (uint32_t)inf.total_depth;
-        uint32_t fresh_con  = level_of(fresh);               // consumed now
+        uint32_t fresh_con  = level_of(fresh);
         uint32_t want_con   = (total > target_remaining)
                               ? (total - target_remaining) : 0u;
         if (fresh_con < want_con)

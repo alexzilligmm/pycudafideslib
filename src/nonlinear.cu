@@ -1,4 +1,4 @@
-#include "llama.h"
+#include "gpt2.h"
 #include "nonlinear.h"
 #include "ckks_primitives.h"
 #include <cmath>
@@ -55,7 +55,9 @@ Ctx silu_ffDim(Inference& inf, const Ctx& x_in) {
 }
 
 /// @brief Encrypted sign approximation via composite minimax polynomials.
-Ctx sign(Inference& inf, const Ctx& x_in) {
+/// With L=13, each degree-9 PS eval consumes 4 levels. The DepthGuard
+/// bootstraps between evaluations when remaining depth is too low.
+Ctx sign(Inference& inf, const Ctx& x_in, const DepthGuard& dg) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
 
@@ -86,9 +88,13 @@ Ctx sign(Inference& inf, const Ctx& x_in) {
     };
 
     // Composition: F4(F4(G4(G4(x))))
+    // Each PS eval consumes ~4 levels. With L=13, we need bootstraps between evals.
     Ctx h = eval_polynomial_ps(cc, x_in, G4, inf.fhe->pk(), (size_t)S);
+    h = dg(h, 0);  // bootstrap if remaining < min_remaining
     h     = eval_polynomial_ps(cc, h,    G4, inf.fhe->pk(), (size_t)S);
+    h = dg(h, 1);
     h     = eval_polynomial_ps(cc, h,    F4, inf.fhe->pk(), (size_t)S);
+    h = dg(h, 2);
     h     = eval_polynomial_ps(cc, h,    F4, inf.fhe->pk(), (size_t)S);
 
     return h;
@@ -97,14 +103,14 @@ Ctx sign(Inference& inf, const Ctx& x_in) {
 /// @brief Homomorphic less-than: returns ~1 if x < value, ~0 otherwise.
 /// @param rescale_factor  Scales (x - value) into [-1, 1] before sign. Use 1.0 when the input is already in that range.
 Ctx lt_function(Inference& inf, const Ctx& x_in, double value,
-                double rescale_factor) {
+                double rescale_factor, const DepthGuard& dg) {
     const CC& cc = inf.cc();
-    auto x = x_in->Clone();        
+    auto x = x_in->Clone();
     Ctx y = cc->EvalAdd(x, -value);
     if (rescale_factor != 1.0)
         cc->EvalMultInPlace(y, rescale_factor);
 
-    Ctx s = sign(inf, y);
+    Ctx s = sign(inf, y, dg);
 
     // (1 - s) / 2
     Ctx res = cc->EvalNegate(s);
@@ -142,16 +148,40 @@ Ctx gelu(Inference& inf, const Ctx& x_in, const GeluConfig& cfg) {
         0.0018067462606141187
     };
 
+    // Build DepthGuard for sign() internal bootstraps (needed at L=13).
+    // Each degree-9 PS eval consumes ~4 levels; with L=13 we need to
+    // bootstrap between the 4 composed evals in sign().
+    // Target level = gelu_btp_level (= 13 in paper config) so sign
+    // gets a full L=13 remaining after each internal bootstrap.
+    uint32_t sign_btp_target = (cfg.btp_target_level > 0)
+                                   ? (uint32_t)cfg.btp_target_level
+                                   : (uint32_t)inf.total_depth;
+    DepthGuard sign_dg;
+    if (cfg.sign_btp_min_remaining > 0 && inf.total_depth > 0) {
+        sign_dg.refresh = [&, sign_btp_target](const Ctx& ct) {
+            return bootstrap_to(inf, ct, sign_btp_target);
+        };
+        sign_dg.total_depth   = (uint32_t)inf.total_depth;
+        sign_dg.min_remaining = cfg.sign_btp_min_remaining;
+    }
+
     Ctx lt_m4, lt_m195, lt_p3;
 
-    lt_m4   = lt_function(inf, x_in, -4.0,  rescale_factor);
-    lt_m195 = lt_function(inf, x_in, -1.95, rescale_factor);
-    lt_p3   = lt_function(inf, x_in,  3.0,  rescale_factor);
+    lt_m4   = lt_function(inf, x_in, -4.0,  rescale_factor, sign_dg);
+    lt_m195 = lt_function(inf, x_in, -1.95, rescale_factor, sign_dg);
+    lt_p3   = lt_function(inf, x_in,  3.0,  rescale_factor, sign_dg);
 
-    
-    lt_m4   = cc->EvalBootstrap(lt_m4);
-    lt_m195 = cc->EvalBootstrap(lt_m195);
-    lt_p3   = cc->EvalBootstrap(lt_p3);
+    if (cfg.bootstrap_indicators) {
+        if (cfg.btp_target_level > 0) {
+            lt_m4   = bootstrap_to(inf, lt_m4,   (uint32_t)cfg.btp_target_level);
+            lt_m195 = bootstrap_to(inf, lt_m195, (uint32_t)cfg.btp_target_level);
+            lt_p3   = bootstrap_to(inf, lt_p3,   (uint32_t)cfg.btp_target_level);
+        } else {
+            lt_m4   = cc->EvalBootstrap(lt_m4);
+            lt_m195 = cc->EvalBootstrap(lt_m195);
+            lt_p3   = cc->EvalBootstrap(lt_p3);
+        }
+    }
 
     Ctx ind_f0  = cc->EvalSub(lt_m195, lt_m4);
     Ctx ind_f1  = cc->EvalSub(lt_p3,   lt_m195);
@@ -174,13 +204,18 @@ Ctx gelu(Inference& inf, const Ctx& x_in, const GeluConfig& cfg) {
 }
 
 /// @brief LayerNorm: (x - mean) * 1/sqrt(variance).
+/// Uses realHidDim (unpadded) for scaling; padded slots (e.g. 768→1024)
+/// must be zero on entry (guaranteed by weight-padding in linear layers
+/// and the paper's fused ciphertext extraction, Section 4.2).
 Ctx norm(Inference& inf, const Ctx& x_in,
          int target_level_after_btp, const NormConfig& cfg) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
-    const int hD = inf.size.hidDim;
+    const int hD = inf.size.hidDim;           // padded
+    const int rD = inf.size.getRealHidDim();  // unpadded
 
-    // Zero out slots beyond hD * (S/hD) so mean/variance sums are correct.
+    // Zero out trailing garbage beyond hD-aligned region.
+    // With power-of-2 padded hD this is typically a no-op (hD divides S).
     Ctx x = mask_slots(cc, x_in, S, hD);
 
     Ctx mean = compute_average(inf, x);
@@ -211,8 +246,18 @@ Ctx norm(Inference& inf, const Ctx& x_in,
         }
 
         case NRInitMethod::TAYLOR: {
+            // Rescale variance so it lands near taylor_z0 where the
+            // degree-3 expansion converges.  taylor_rescale is derived
+            // from profiled per-layer variance ranges at config time.
+            // 1/sqrt(var) = sqrt(s) * 1/sqrt(s * var)
+            double s = cfg.taylor_rescale;
+            Ctx var_scaled = (s != 1.0) ? cc->EvalMult(varc, s) : varc->Clone();
+
             std::vector<double> taylor_c = taylor_inv_sqrt_coeffs(cfg.taylor_z0);
-            inv_sqrt_init = eval_taylor_inv_sqrt(cc, varc, taylor_c, cfg.taylor_z0);
+            inv_sqrt_init = eval_taylor_inv_sqrt(cc, var_scaled, taylor_c, cfg.taylor_z0);
+
+            if (s != 1.0)
+                cc->EvalMultInPlace(inv_sqrt_init, std::sqrt(s));
             break;
         }
     }
@@ -231,7 +276,10 @@ Ctx norm(Inference& inf, const Ctx& x_in,
     inv_sqrt_varc = inv_sqrt_newton(cc, varc, inv_sqrt_init, cfg.nr_iters, dg);
 
     Ctx x_centered = x_in->Clone();
-    Ctx true_mean  = cc->EvalMult(mean, 1.0 / (double)hD);
+    // Divide sum by the REAL (unpadded) dimension to get the true mean.
+    // The sum from compute_average includes zero-padded positions, which
+    // contribute nothing, so dividing by rD is correct.
+    Ctx true_mean  = cc->EvalMult(mean, 1.0 / (double)rD);
     cc->EvalSubInPlace(x_centered, true_mean);
 
     Ctx result = cc->EvalMult(x_centered, inv_sqrt_varc);
@@ -300,18 +348,63 @@ Ctx softmax_cachemir(Inference& inf, const Ctx& x_in,
 /// @param precomputed_max  If non-null, skip the sign-based max (oracle path).
 Ctx softmax(Inference& inf, const Ctx& x_in,
              const SoftmaxConfig& cfg,
-             const Ctx& precomputed_max) {
+             const Ctx& precomputed_max,
+             const Ptx& causal_mask) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
     const int seq_dim = cfg.seq_dim;
     const int stride  = S / seq_dim;
 
-    // ---- Phase 1: compute or accept max ----
+    // Apply causal mask: add large negative values at future positions
+    // so that exp(x + mask) ≈ 0 for masked positions.
+    // The mask plaintext should contain 0 at valid positions and a large
+    // negative value (e.g. -1e4) at positions to mask out.
+    //
+    // TODO: implement PCMM (Packed Ciphertext Matrix Multiplication) masking
+    // as in HETAL (Lee et al., 2023) for efficient causal attention.
+    // PCMM avoids the O(seq^2) plaintext mask by encoding the triangular
+    // structure directly into the packing layout and rotation pattern,
+    // requiring only O(seq) extra rotations instead of a full mask multiply.
+    Ctx x_masked;
+    if (causal_mask != nullptr) {
+        Ptx mask_copy = causal_mask;  // EvalAdd needs non-const Ptx&
+        x_masked = cc->EvalAdd(x_in, mask_copy);
+        std::cout << "  [softmax] causal mask applied\n";
+    } else {
+        x_masked = x_in->Clone();
+    }
+
+    // ---- Autonomous bootstrap guard ----
+    // Fires before any sub-circuit that would otherwise exhaust the modulus chain.
+    // btp_min_remaining = exp_r + 2 ensures exp_approx (exp_r+1 levels) + final
+    // EvalMult (1 level) always have budget.  Set to 0 to disable.
+    auto maybe_btp = [&](Ctx& ct, const char* tag) {
+        if (cfg.btp_min_remaining == 0) return;
+        uint32_t consumed  = level_of(ct);
+        uint32_t remaining = ((uint32_t)inf.total_depth > consumed)
+                             ? ((uint32_t)inf.total_depth - consumed) : 0u;
+        if (remaining < cfg.btp_min_remaining) {
+            ct = bootstrap_to(inf, ct, (uint32_t)cfg.btp_target_level);
+            std::cout << "  [softmax] " << tag << " bootstrap, consumed="
+                      << level_of(ct) << "\n";
+        }
+    };
+
+    // ---- Phase 1: compute or apply max ----
+    // For given_max_val we use scalar subtraction (EvalSub with double)
+    // to avoid cipher-cipher EvalSub across a large level gap, which can
+    // trigger FLEXIBLEAUTO alignment failures in FIDESlib/OpenFHE.
+    bool use_scalar_max = false;
     Ctx x_max;
     if (precomputed_max != nullptr) {
         x_max = precomputed_max->Clone();
+        maybe_btp(x_max, "post-max");
+    } else if (cfg.given_max_val > 0.0) {
+        use_scalar_max = true;
+        std::cout << "  [softmax] using given_max_val=" << cfg.given_max_val
+                  << " (scalar sub)\n";
     } else {
-        x_max = x_in->Clone();
+        x_max = x_masked->Clone();
         for (int gap = stride; gap < S; gap *= 2) {
             Ctx shifted = cc->EvalRotate(x_max, gap);
 
@@ -328,39 +421,28 @@ Ctx softmax(Inference& inf, const Ctx& x_in,
             x_max = sum;
         }
         std::cout << "  [softmax] sign-max done, consumed=" << level_of(x_max) << "\n";
+        maybe_btp(x_max, "post-max");
     }
 
-    // Helper: bootstrap ct if remaining levels < threshold (0 = never).
-    auto maybe_btp = [&](Ctx& ct, const char* tag) {
-        if (cfg.btp_min_remaining == 0) return;
-        uint32_t consumed  = level_of(ct);
-        uint32_t remaining = (uint32_t)inf.total_depth - consumed;
-        if (remaining < cfg.btp_min_remaining) {
-            ct = bootstrap_to(inf, ct, (uint32_t)cfg.btp_target_level);
-            std::cout << "  [softmax] " << tag << " bootstrap, consumed="
-                      << level_of(ct) << "\n";
-        }
-    };
-
-    // ---- Phase boundary: after max, before subtract ----
-    maybe_btp(x_max, "post-max");
-
     // ---- Phase 2: exp(x - max) ----
-    Ctx x_shifted = x_in->Clone();
-    cc->EvalSubInPlace(x_shifted, x_max);
+    Ctx x_shifted = x_masked->Clone();
+    if (use_scalar_max) {
+        cc->EvalSubInPlace(x_shifted, cfg.given_max_val);
+    } else {
+        cc->EvalSubInPlace(x_shifted, x_max);
+    }
 
     std::cout << "  [softmax] input to exp_approx, consumed=" << level_of(x_shifted) << "\n";
     maybe_btp(x_shifted, "pre-exp");
     Ctx exp_ct = exp_approx(cc, x_shifted, cfg.exp_r);
 
-    // ---- Phase 3: sum and inverse ----
     Ctx exp_sum = exp_ct->Clone();
     for (int gap = stride; gap < S; gap *= 2) {
         Ctx tmp = cc->EvalRotate(exp_sum, gap);
         cc->EvalAddInPlace(exp_sum, tmp);
     }
 
-    double alpha = 1.0 / (double)seq_dim;
+    double alpha = cfg.gs_inv_init / (double)(seq_dim * inf.size.hidDim);
     Ctx inv_init = encrypt_const(cc, alpha, (size_t)S, inf.fhe->pk());
 
     maybe_btp(exp_sum, "pre-inv");
@@ -377,6 +459,12 @@ Ctx softmax(Inference& inf, const Ctx& x_in,
     }
 
     Ctx inv_sum = goldschmidt_inv(cc, exp_sum, inv_init, cfg.gs_inv_iters, dg);
+
+    // Bootstrap exp_ct if it has exhausted its depth budget.
+    // exp_ct was computed before Goldschmidt (which bootstraps inv_sum internally)
+    // and may be at a very high consumed level.  The final EvalMult needs ≥ 1
+    // remaining level.  Refresh exp_ct if it's too stale.
+    maybe_btp(exp_ct, "pre-final-mult");
 
     Ctx y = cc->EvalMult(exp_ct, inv_sum);
     return y;

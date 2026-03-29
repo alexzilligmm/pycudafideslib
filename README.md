@@ -1,333 +1,262 @@
 # pycudafideslib
 
-GPU-accelerated FHE inference for transformer models (GPT-2, LLaMA) using CKKS homomorphic encryption via [FIDESlib](third_party/FIDESlib/) + OpenFHE.
+GPU-accelerated FHE inference for transformer models (GPT-2, LLaMA) using CKKS
+homomorphic encryption via [FIDESlib](third_party/FIDESlib/) + OpenFHE on NVIDIA GPUs.
 
-## Architecture
+Implements the [CacheMIR](https://arxiv.org/abs/2602.11470) interleaved packing scheme
+with automated bootstrap placement via a DP optimizer.
+
+## Full Pipeline
+
+The pipeline is a 10-step sequence that takes you from source code to a fully
+encrypted GPT-2 next-token prediction. Each step produces artifacts consumed
+by later steps.
 
 ```
- prepare_gpt2_weights.py
- (HuggingFace -> .txt)
-         |
-         v
- estimate_ranges.py  --->  ranges-<model>.json
- (plaintext inference          (per-op min/max
-  to profile activations)       value ranges)
-         |
-         v
- remez_cli  ------------->  poly_coeffs-<model>.json
- (minimax fit over             (standard monomial coefficients
-  profiled ranges)              + recommended degree, for PS eval)
-         |
-         | (update src/nonlinear.cu if coefficients changed)
-         v
- run_bench.sh  --->  cuda_cachemir  --->  raw_result.csv  --->  new_data.csv
- (sweep all ops       (C++/CUDA          (per-op timings)       (latency table)
-  at each level)       benchmark)                                      |
-                                                                       v
-                                                              bootstrap.py
-                                                              (optimal bootstrap
-                                                               placement via DP)
-                                                                       |
-                                                                       v
-                                                              gpt2_decoder() / decoder()
-                                                              (FHE inference with
-                                                               bootstrap_to() calls
-                                                               at optimal positions)
+ ┌─────────────────────────────────────────────────────────────────────────┐
+ │   scripts/05_full_inference.sh — runs all 10 steps in one SLURM job    │
+ └──┬──────────────────────────────────────────────────────────────────────┘
+    │
+    │  1. BUILD              cmake + nvcc → build/bin/cuda_cachemir + test binaries
+    │
+    │  2. BENCH              BenchAll: measure latency of every FHE op (QKV, GELU,
+    │                        Softmax, Norm, ...) at each CKKS level 1..13
+    │                        → bench_all_output.txt → new_data.csv
+    │
+    │  3. PLACEMENT          bootstrap.py: DP optimizer reads new_data.csv,
+    │                        finds optimal bootstrap insertion points
+    │                        → new_data_placement.json
+    │
+    │  4. CONFIG             gen_config.py: reads placement JSON, generates
+    │                        per-layer BTP levels + FHE context params
+    │                        → include/gpt2_optimized_config.h
+    │
+    │  5. REBUILD            cmake + nvcc again (the config header changed)
+    │
+    │  6. WEIGHTS + VECTORS  prepare_gpt2_weights.py: download HuggingFace GPT-2,
+    │                        absorb LayerNorm gamma into W, pad 768→1024 / 3072→4096,
+    │                        BSGS-pack diagonals → weights-gpt2/ (standard)
+    │                                             → weights-gpt2-interleaved/ (CacheMIR)
+    │                        generate_gpt2_test_vectors.py: plaintext reference vectors
+    │                        → test_vectors_logN16/
+    │
+    │  7. PYTHON TESTS       test_gen_config.py: placement→C++ header translation
+    │                        test_bsgs_linear.py: numerical BSGS packing verification
+    │                          (real_mode, bench_mode, interleaved, rectangular,
+    │                           streaming, memory efficiency comparison)
+    │
+    │  8. C++ TESTS          9 GPU test binaries:
+    │                          test_basics        — encrypt/mult/bootstrap smoke
+    │                          test_depth_budget  — level tracking and depth guard
+    │                          test_linear        — BSGS + interleaved matmul
+    │                          test_non_linear    — GELU, Norm, Softmax (with/without BTP)
+    │                          test_gpt2_real     — per-layer diagnostic with real weights
+    │                          test_primitives    — Newton-Raphson, Goldschmidt
+    │                          test_poly_approx   — polynomial approximation accuracy
+    │                          test_poly_approx_time — polynomial approximation timing
+    │                          test_remez_taylor  — Remez/Taylor approximation
+    │
+    │  9. SMOKE TEST         DiagModel: 1-layer inference with real weights,
+    │                        decrypts after each stage to check noise propagation
+    │
+    │ 10. FULL INFERENCE     Generate: 12-layer encrypted GPT-2, tokenize prompt,
+    │                        embed → encrypt → 12 decoders → decrypt → argmax
+    │                        → predicted next token
+    └──────────────────────────────────────────────────────────────────────────
 ```
 
-## Quick Start
+## Quick Start (Leonardo HPC / SLURM)
 
-### 1. Build
+All compute runs via `sbatch`. Python runs via `uv run`.
+
+### Option A: Run the entire pipeline
 
 ```bash
-# Install dependencies (FIDESlib + OpenFHE)
-bash scripts/01_install_deps.sh
-
-# Build
-mkdir -p build && cd build
-cmake .. -DFIDESLIB_ROOT=/path/to/fideslib
-make -j$(nproc)
-cd ..
+sbatch scripts/05_full_inference.sh                 # everything (~8-12 hours)
+sbatch scripts/05_full_inference.sh --skip-bench     # reuse existing bench CSV
+sbatch scripts/05_full_inference.sh --skip-weights   # reuse existing weights
 ```
 
-The binary lands at `build/bin/cuda_cachemir`. Tests land in the same directory.
-
-### 2. Run Tests
+### Option B: Run steps individually
 
 ```bash
-bash scripts/03_run_tests.sh
-# or individually:
-./build/bin/test_basics
-./build/bin/test_linear
-./build/bin/test_non_linear
+# 1. Install dependencies (FIDESlib + OpenFHE → deps/)
+sbatch scripts/01_install_deps.sh
+
+# 2. Build
+sbatch scripts/02_build.sh
+
+# 3. Run tests
+sbatch scripts/03_run_tests.sh
+
+# 4. Generate weights
+sbatch scripts/04a_generate_weights.sh               # standard BSGS
+sbatch scripts/04c_generate_weights_interleaved.sh   # CacheMIR interleaved
+
+# 5. Encrypted generation
+sbatch scripts/11_generate_text.sh
+sbatch scripts/11_generate_text.sh --text "Once upon a time" --layers 12
 ```
 
-### 3. Benchmark: Measure Per-Op Latencies
+## CKKS Parameters (Paper-Aligned)
 
-This is the key step. The bootstrap placement optimizer needs to know how long each FHE operation takes at each CKKS level on your specific GPU.
+All parameters follow the CacheMIR paper (arXiv:2602.11470, §7.1):
 
-**LLaMA:**
-```bash
-./run_bench.sh --model llama --logN 16 --hidDim 4096 --ffDim 16384
-```
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| logN | 16 | Ring dim N'=65536, slots S=32768 |
+| L (max level) | 13 | Working multiplicative depth |
+| K (BTP depth) | 15 | Bootstrap circuit depth overhead |
+| level_budget | {4, 3} | CtS=4, StC=3 levels |
+| h_weight | 192 | Sparse ternary secret (Hamming weight) |
+| Secret dist | SPARSE_ENCAPSULATED | Bossuat et al. 2022, special Chebyshev coefficients |
+| btp_scale_bits | 50 | Per-level modulus in bootstrap path |
+| first_mod_bits | 53 | log2(q0) ≈ 53 |
+| scale_bits | 41 | Working modulus for non-bootstrap ops |
 
-**GPT-2:**
-```bash
-./run_bench.sh --model gpt2 --logN 16 --hidDim 768 --ffDim 3072
-```
-
-This loops over every `(operation, level)` pair, times each one, and produces:
-- `raw_result.csv` -- per-run raw timings
-- `new_data.csv` -- tab-separated latency table
-
-You can also run individual benchmarks:
-```bash
-./build/bin/cuda_cachemir -test QKV -level 5 -logN 12
-./build/bin/cuda_cachemir -test GELU -level 8 -logN 12
-./build/bin/cuda_cachemir -test Softmax -level 16 -btpLevel 12 -logN 16
-./build/bin/cuda_cachemir -test Decoder -model gpt2 -logN 12 -hidDim 768 -ffDim 3072
-```
-
-Available `-test` values:
-
-| Test | Description | Model |
-|------|-------------|-------|
-| `QKV` | Single Q/K/V projection | both |
-| `RoPE` | Rotary position embeddings | LLaMA |
-| `Cache` | KV cache update | both |
-| `QK_T` | QK^T dot product | both |
-| `AttnV` | Attention-value multiply | both |
-| `Out` | Output projection | both |
-| `UpGate` | Up + Gate projection (2x) | LLaMA |
-| `Up` | Single up projection | GPT-2 |
-| `Down` | Down projection | both |
-| `SiLU` | SiLU activation (Chebyshev-127) | LLaMA |
-| `GELU` | GELU activation (piecewise poly) | GPT-2 |
-| `CtMult` | Ciphertext-ciphertext multiply | both |
-| `Softmax` | Softmax (with `-btpLevel` sweep) | both |
-| `Norm` | LayerNorm (Newton + Goldschmidt) | both |
-| `Decoder` | Full decoder layer | both |
-| `Model` | Full model (32 or 12 layers) | both |
-
-### 4. Optimize Bootstrap Placement
-
-Once you have `new_data.csv` with measured latencies:
-
-```bash
-# LLaMA
-python bootstrap.py --file new_data.csv --model llama --max-level 16
-
-# GPT-2
-python bootstrap.py --file new_data.csv --model gpt2 --max-level 16
-
-# Custom CKKS parameters
-python bootstrap.py --file new_data.csv --model gpt2 --boot-lat 42.0 --max-level 16
-```
-
-Output: the optimal route through the computation showing **where to place each `bootstrap_to()` call** and the expected end-to-end latency.
-
-```
-======================================================================
-  gpt2 -- Optimal Bootstrap Placement
-======================================================================
-  End-to-end latency : 2340.00 s
-  Route (12 steps):
-    [  0] MHA                   level=0
-    [  1] FFN                   level=3  <-- BOOTSTRAP (level 5 -> 3)
-    [  2] MHA                   level=0  <-- BOOTSTRAP (level 6 -> 0)
-    ...
-  Bootstraps needed: 8
-======================================================================
-```
-
-### 5. Estimate Activation Ranges and Fit Polynomial Approximations
-
-Before building with real weights, profile the activation value ranges across the model so that polynomial approximations (GELU, SiLU, Softmax, Norm) are fitted over the correct domain. Wrong intervals waste levels or degrade accuracy.
-
-**Step 5a — collect per-layer activation ranges from plaintext inference:**
-
-```bash
-# Run on real or representative inputs; writes ranges-<model>.json
-python estimate_ranges.py --model gpt2 --weights weights-gpt2/ --out ranges-gpt2.json
-python estimate_ranges.py --model llama --weights weights-llama/ --out ranges-llama.json
-```
-
-Output (`ranges-gpt2.json`) contains per-op min/max observed values, e.g.:
-```json
-{
-  "gelu_input":   {"min": -8.2,  "max": 6.1},
-  "softmax_input":{"min": -142.0,"max": 3.4},
-  "norm_variance":{"min": 1e-4,  "max": 12.3}
-}
-```
-
-**Step 5b — run the Remez CLI to produce minimax polynomial coefficients (standard basis):**
-
-```bash
-# Fits a minimax polynomial over the profiled ranges via the Remez algorithm;
-# writes poly_coeffs-<model>.json with standard monomial coefficients + recommended degree.
-# These feed directly into eval_polynomial_ps (Paterson-Stockmeyer, standard basis).
-remez_cli --ranges ranges-gpt2.json --model gpt2 --out poly_coeffs-gpt2.json
-
-# Use polyeval.py to compare approximation strategies (Remez, Taylor, Chebyshev)
-# and inspect error vs. degree trade-offs — it is an analysis tool, not the fitter:
-python polyeval.py --ranges ranges-gpt2.json --coeffs poly_coeffs-gpt2.json --plot
-```
-
-The Remez tests can also be run directly to validate a specific approximation:
-```bash
-./build/bin/test_remez_taylor   # unit tests for Remez & Taylor approximations
-```
-
-After updating coefficients in `src/nonlinear.cu`, rebuild before benchmarking:
-```bash
-make -C build -j
-```
-
-### 6. Extract GPT-2 Weights from HuggingFace
-
-```bash
-pip install transformers torch
-python prepare_gpt2_weights.py --model gpt2 --out_dir weights-gpt2 --slots 2048
-```
-
-Produces `weights-gpt2/` with per-layer weight files (`.txt`, one plaintext vector per line):
-```
-weights-gpt2/
-  wte.txt                  # token embeddings (50257 x 768)
-  wpe.txt                  # position embeddings (1024 x 768)
-  layer0_Wq.txt            # Q weight (768 x 768), flattened into slots-wide vectors
-  layer0_bq.txt            # Q bias (768), zero-padded to slots
-  layer0_Wu.txt            # MLP up weight (768 x 3072)
-  ...
-  ln_f_g.txt               # final LayerNorm gamma
-  ln_f_b.txt               # final LayerNorm beta
-```
-
-### 6. Run FHE Inference
-
-```bash
-# GPT-2 decoder (single layer)
-./build/bin/cuda_cachemir -test Decoder -model gpt2 \
-    -logN 12 -hidDim 768 -ffDim 3072 -numHeads 12
-
-# GPT-2 full model (12 layers)
-./build/bin/cuda_cachemir -test Model -model gpt2 \
-    -logN 16 -hidDim 768 -ffDim 3072 -seqLen 1024 -numHeads 12
-
-# LLaMA full model (32 layers)
-./build/bin/cuda_cachemir -test Model -model llama \
-    -logN 16 -hidDim 4096 -ffDim 11008 -seqLen 512 -numHeads 32
-```
-
-## Full Pipeline (End to End)
-
-```bash
-# 1. Extract weights
-pip install transformers torch
-python prepare_gpt2_weights.py --model gpt2 --out_dir weights-gpt2 --slots 32768
-
-# 2. Profile activation ranges (plaintext, no FHE)
-python estimate_ranges.py --model gpt2 --weights weights-gpt2/ --out ranges-gpt2.json
-
-# 3. Fit minimax polynomials (standard basis, for PS evaluation)
-remez_cli --ranges ranges-gpt2.json --model gpt2 --out poly_coeffs-gpt2.json
-#    → update coefficients in src/nonlinear.cu if needed
-
-# 4. Build
-mkdir -p build && cd build && cmake .. && make -j && cd ..
-
-# 5. Benchmark all ops to get latency table
-./run_bench.sh --model gpt2 --logN 16 --hidDim 768 --ffDim 3072
-
-# 6. run_bench.sh automatically calls bootstrap.py at the end,
-#    but you can also re-run with different parameters:
-python bootstrap.py --file new_data.csv --model gpt2
-
-# 7. Read the placement output, update bootstrap_to() targets
-#    in src/gpt2.cu if needed, rebuild, and run inference:
-make -C build -j
-./build/bin/cuda_cachemir -test Model -model gpt2 \
-    -logN 16 -hidDim 768 -ffDim 3072 -numHeads 12
-```
+**Note on OpenFHE vs Lattigo:** The paper uses Lattigo which has separate P primes
+(61-bit) for bootstrap. OpenFHE/FIDESlib bootstrap shares the Q modulus chain — all
+K=15 bootstrap levels use the same working moduli. This requires `btp_scale_bits≥50`
+(vs the paper's 41-bit which only works in Lattigo). See `project_bootstrap_params.md`
+for the full analysis.
 
 ## Project Structure
 
 ```
 pycudafideslib/
   include/
-    fideslib_wrapper.h    # CKKS context, encode, encrypt, decrypt
-    inference.h           # Inference struct (weights, cache, dimensions)
-    llama.h               # LLaMA declarations
-    gpt2.h                # GPT-2 declarations
-    nonlinear.h           # GELU/SiLU/Norm/Softmax configs & declarations
-    ckks_primitives.h     # Newton-Raphson, Goldschmidt, Chebyshev
+    fideslib_wrapper.h        # Thin CKKS wrapper: make_ckks_context(), encrypt/decrypt
+    inference.h               # Inference struct: weights, raw_w, cache, dimensions
+    gpt2.h                    # GPT-2 model/layer config, declarations
+    gpt2_optimized_config.h   # AUTO-GENERATED by gen_config.py — do not hand-edit
+    llama.h                   # LLaMA declarations
+    nonlinear.h               # GELU/SiLU/Norm/Softmax configs & declarations
   src/
-    main.cu               # CLI benchmark harness
-    linear.cu             # BSGS matrix-vector multiply, QKV, attention
-    nonlinear.cu          # GELU, SiLU, sign, softmax, norm, argmax
-    llama.cu              # LLaMA decoder (32 layers, RoPE, gated SiLU MLP)
-    gpt2.cu               # GPT-2 decoder (12 layers, no RoPE, GELU MLP)
-    primitives.cu         # Newton-Raphson, Goldschmidt inv-sqrt
-    poly_eval.cu          # Chebyshev, Horner, Paterson-Stockmeyer, rational
-    bootstrap.cu          # bootstrap_to() helper
+    main.cu               # CLI: -test Generate/Classify/Decoder/BenchAll/...
+    gpt2.cu               # GPT-2 decoder, model, generate, classify, weight loading
+    linear.cu             # BSGS + CacheMIR interleaved matmul, QKV, attention
+    nonlinear.cu          # GELU, sign, softmax, LayerNorm (Newton-Raphson + Goldschmidt)
+    bootstrap.cu          # bootstrap_to() — conditional BTP helper
+    primitives.cu         # Newton-Raphson, Goldschmidt inverse square root
+    llama.cu              # LLaMA decoder (RoPE, gated SiLU MLP)
   tests/
-    test_basics.cu        # FHE context smoke test
-    test_linear.cu        # BSGS matmul correctness
-    test_non_linear.cu    # GELU, softmax, sign accuracy
-    test_primitives.cu    # Goldschmidt, Newton-Raphson
-    test_poly_approx.cu   # Polynomial evaluation methods
-    test_remez_taylor.cu  # Remez & Taylor approximation
-  bootstrap.py            # Bootstrap placement optimizer (DP solver)
-  test_bootstrap.py       # Tests for bootstrap.py
-  run_bench.sh            # Automation: benchmark all ops -> data.csv -> bootstrap.py
-  prepare_gpt2_weights.py # Extract GPT-2 weights from HuggingFace
-  polyeval.py             # Polynomial evaluation comparison (offline)
-  CMakeLists.txt          # Build system
-  third_party/FIDESlib/   # GPU-accelerated FHE library (OpenFHE 1.4.2)
-  cachemir/               # Original Go/Lattigo reference implementation
+    test_basics.h/.cu       # encrypt/mult/bootstrap, shared context via SetUpTestSuite
+    test_non_linear.h/.cu   # GELU, Norm, Softmax, SoftmaxCausalMask, SoftmaxWithoutOracle
+    test_linear.cu          # BSGS + interleaved matmul correctness (LinearTest, RealModeLinearTest)
+    test_gpt2_real.cu       # End-to-end layer tests with real weights (GPT2LinearTest, GPT2DecoderTest)
+    test_depth_budget.cu    # Level tracking and DepthGuard
+    test_primitives.cu      # Newton-Raphson, Goldschmidt
+    test_poly_approx.cu     # Polynomial approximation accuracy
+    test_poly_approx_time.cu# Polynomial approximation timing
+    test_remez_taylor.cu    # Remez/Taylor approximation
+    test_gen_config.py      # Python: gen_config.py placement→C++ translation
+    test_bsgs_linear.py     # Python: BSGS packing numerical verification
+    generate_gpt2_test_vectors.py  # Generate plaintext reference vectors for C++ tests
+  scripts/
+    00_pipeline.sh        # Legacy full pipeline (use 05_full_inference.sh instead)
+    01_install_deps.sh    # Build FIDESlib + OpenFHE → deps/
+    02_build.sh           # cmake + make (sbatch only — GPU needed for NCCL detection)
+    03_run_tests.sh       # Build + run all 9 C++ test binaries (normal QOS, 2h)
+    04a_generate_weights.sh     # Standard BSGS weights (logN=16)
+    04c_generate_weights_interleaved.sh  # CacheMIR interleaved weights (logN=16)
+    05_full_inference.sh  # **THE** pipeline: build→bench→placement→config→rebuild→
+                          #   weights→vectors→py-tests→cpp-tests→smoke→full-generation
+    11_generate_text.sh   # End-to-end encrypted text generation
+    tokenize_input.py     # Tokenize prompt text → token IDs for C++ binary
+  bootstrap.py            # DP placement optimizer (reads latency CSV, writes placement JSON)
+  gen_config.py           # Placement JSON → include/gpt2_optimized_config.h
+  prepare_gpt2_weights.py # HuggingFace GPT-2 → BSGS-packed .txt per layer
+  estimate_ranges.py      # Plaintext inference → per-layer activation ranges → taylor_rescale
 ```
 
-## Approximation Variants
+## Python Tests
 
-The bootstrap optimizer supports exploring multiple approximation strategies per nonlinear op. To add a new variant (e.g. GELU via Chebyshev instead of piecewise):
+### test_gen_config.py
 
-1. Implement it in `nonlinear.cu`
-2. Benchmark it: add a row `GELU_cheb` to your data CSV
-3. Register it in `bootstrap.py`:
-   ```python
-   def solve_gelu_chebyshev(cfg, data, prune):
-       p = cfg.placer("GELU_cheb")
-       p.add_layer("GELU_cheb", data["GELU_cheb"])
-       p.add_layer("last_layer", cfg.zero_layer())
-       return p.solve_latency_only(prune)
+Validates that `gen_config.py` correctly translates bootstrap placement JSON into
+C++ config headers. Tests pruned routes (composed decoder layers), flat routes
+(individual ops), both cpp and json output formats, and custom layer counts.
+Run with: `uv run python tests/test_gen_config.py`
 
-   ACTIVATION_VARIANTS["GELU"].append(("chebyshev", solve_gelu_chebyshev))
-   ```
+### test_bsgs_linear.py
 
-The optimizer will automatically try all registered variants and pick the element-wise best across the level-to-level latency table.
+Comprehensive numerical verification of the BSGS linear kernel for CKKS matrix-vector
+multiply. Tests three packing modes:
 
-## CKKS Parameters
+1. **real_mode** (baby_step=1): correct for any S ≥ d
+2. **bench_mode** (baby_step=intRot): only correct when S = d
+3. **interleaved_mode** (CacheMIR): correct for any S ≥ d, fewer Galois keys
 
-| Parameter | Default | Notes |
-|-----------|---------|-------|
-| `logN` | 12-16 | Ring dimension N = 2^logN. Larger = more slots but slower |
-| `depth` | 24 | Multiplicative depth budget |
-| `scale_bits` | 40 | Per-level modulus size |
-| `bootstrap` | enabled | +9 extra levels for bootstrap circuit |
-| `slots` | N/2 | SIMD packing width |
+Covers: square matrices, rectangular Up/Down, streaming block-by-block, shrink
+(d_in > d_out) with corrected giant step, and a memory efficiency table comparing
+standard vs interleaved plaintext counts across configs.
+Run with: `uv run python tests/test_bsgs_linear.py`
 
-## GPT-2 vs LLaMA
+## C++ Tests
 
-| | GPT-2 small | LLaMA 7B |
+All test fixtures use `SetUpTestSuite()` with static context — the expensive
+logN=16 CKKS context is built once per fixture class, not per test.
+
+| Binary | What it tests |
+|--------|--------------|
+| test_basics | Basic encrypt/mult/decrypt, bootstrap at various levels |
+| test_depth_budget | Level tracking, DepthGuard bootstrap triggers |
+| test_linear | BSGS matmul (square, rectangular), interleaved matmul, rotation indices |
+| test_non_linear | NormApprox (no padding), NormApproxWithPadding, GeLU, Softmax (oracle/no-oracle), sign() |
+| test_gpt2_real | Per-layer tests with real HuggingFace weights vs plaintext reference vectors |
+| test_primitives | Newton-Raphson inverse, Goldschmidt inverse square root |
+| test_poly_approx | Chebyshev, Taylor polynomial approximation accuracy |
+| test_poly_approx_time | Polynomial evaluation timing benchmarks |
+| test_remez_taylor | Remez minimax vs Taylor polynomial comparison |
+
+**Known issue:** Some test binaries exit with code 134 (SIGABRT) at teardown due to
+heap corruption in OpenFHE/FIDESlib cleanup. All tests report PASSED before the crash.
+The test runner script handles this by running each binary independently.
+
+## Key Design Notes
+
+### realHidDim / realFfDim Padding
+
+GPT-2's hidden dimension (768) is padded to the next power of two (1024) for BSGS
+efficiency. The original dimension is passed as `-realHidDim 768` so that LayerNorm
+normalises over the correct 768 elements, not the padded 1024.
+
+### BSGS vs CacheMIR Interleaved Packing
+
+| | BSGS (standard) | CacheMIR (interleaved) |
 |---|---|---|
-| Layers | 12 | 32 |
-| hidDim | 768 | 4096 |
-| ffDim | 3072 | 11008 |
-| Heads | 12 | 32 |
-| Position encoding | Learned (added at input) | RoPE (per-layer) |
-| MLP | Up -> GELU -> Down | Up + Gate -> SiLU -> elem_mult -> Down |
-| Biases | Yes (all layers) | No |
-| Activation | GELU (piecewise, ~20 levels) | SiLU (Chebyshev-127, ~7 levels) |
+| Weight plaintexts per matrix | d | d_in × d_out / S |
+| Mult depth | 2 | 1 |
+| Rotation cost | d + √d | 2 log₂(t) + 2 |
+| Memory at logN=16, GPT-2 | 4096 Ptx/layer | 384 Ptx/layer (10.7×) |
 
+### Bootstrap Placement
 
+`bootstrap_to(inf, ct, target)` is **conditional**: fires only when remaining depth
+is below target, otherwise no-op. The per-layer BTP levels are computed by the DP
+optimizer (`bootstrap.py`) and baked into `gpt2_optimized_config.h`.
+
+### Memory: raw_w vs w
+
+`inf.w` holds FIDESlib `Ptx` objects (NTT-expanded, ~10 MB each at logN=16).
+`inf.raw_w` holds raw `vector<double>` rows (8 bytes × S per row).
+
+Embedding tables (wte 50k rows, wpe 1k rows, lm_head 50k rows) live in `raw_w` —
+only the row needed at runtime is encoded to Ptx on-demand.
+
+## GPT-2 Decoder Architecture (Encrypted)
+
+Each of the 12 decoder layers runs this pipeline under encryption:
+
+```
+x_in ─┬─→ [BTP] → LayerNorm1 → QKV projections → KV cache
+      │                         → QK^T → [BTP] → Softmax → AttnV → OutProj + bias
+      │                                                              │
+      └─→ reduce_to_level ──────────────────────────── + (residual) ─┘
+                                                          │
+      ┌─→ reduce_to_level ──────────────────────── + (residual) ─→ output
+      │                                              │
+      └── [BTP] → LayerNorm2 → Up + bias → [BTP] → GELU → Down + bias
+```
+
+After 12 layers: final LayerNorm → decrypt → lm_head argmax (plaintext) → next token.

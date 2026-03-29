@@ -41,8 +41,8 @@ make_ckks_context(int logN                          = 12,
                   int scale_bits                    = 40,
                   uint32_t bootstrap_slots          = 0,    // 0 = N/2
                   bool enable_bootstrap             = true,
-                  int btp_scale_bits                = 59,   // per-level modulus in bootstrap path
-                  int first_mod_bits                = 60,   // special first prime size
+                  int btp_scale_bits                = 50,   // per-level modulus in bootstrap path (OpenFHE max=59)
+                  int first_mod_bits                = 53,   // special first prime size
                   std::vector<uint32_t> level_budget_in = {},  // {} → {3,3} when bootstrapping
                   uint32_t batch_size               = 0,    // 0 = N/2
                   // --- alignment params (match Lattigo ring.Ternary{H} / LogP) ---
@@ -74,13 +74,19 @@ make_ckks_context(int logN                          = 12,
     params.SetFirstModSize(first_mod_bits);
     params.SetScalingTechnique(FLEXIBLEAUTO);
     params.SetBatchSize(slots);
-    params.SetSecretKeyDist(h_weight > 0 ? SPARSE_TERNARY : UNIFORM_TERNARY);
+    // CacheMIR paper §7.1: sparse secret encapsulation (Bossuat et al. 2022)
+    // SPARSE_ENCAPSULATED uses special Chebyshev coefficients for bootstrap
+    // and maps to FIDESlib::ENCAPS GPU boot config.
+    // Note: h_weight > 0 signals "sparse secret" intent from the paper.
+    params.SetSecretKeyDist(h_weight > 0 ? fideslib::SPARSE_ENCAPSULATED : UNIFORM_TERNARY);
     params.SetNumLargeDigits(num_large_digits);
     params.SetKeySwitchTechnique(HYBRID);
-    if (enable_bootstrap) {
-        params.SetSecurityLevel(HEStd_NotSet);
-        params.SetRingDim(1 << logN);
-    }
+    // Always fix ring dimension to match logN and disable security-based
+    // auto-selection.  Without this, non-bootstrap contexts pick a much
+    // larger ring dim for HEStd_128_classic, causing slot-count mismatches
+    // when creating plaintexts of size S = N/2.
+    params.SetSecurityLevel(HEStd_NotSet);
+    params.SetRingDim(1 << logN);
 
     auto cc = GenCryptoContext(params);
     cc->Enable(PKE);
@@ -177,11 +183,20 @@ inline void drop_levels(const CC& /*cc*/, Ctx& ct, uint32_t n) {
 
 inline void reduce_to_level(const CC& cc, Ctx& ct,
                              uint32_t target_level, int slots) {
+    int step = 0;
     while (level_of(ct) < target_level) {
+        uint32_t cur = level_of(ct);
+        std::cerr << "    reduce step " << step << ": level " << cur
+                  << " → " << (cur+1) << " (target=" << target_level
+                  << ", slots=" << slots << ")" << std::flush;
         std::vector<double> ones(slots, 1.0);
-        Ptx pt_one = cc->MakeCKKSPackedPlaintext(ones, /*noiseScaleDeg=*/1,
-                                                  (uint32_t)level_of(ct));
+        std::cerr << " encode..." << std::flush;
+        Ptx pt_one = cc->MakeCKKSPackedPlaintext(ones, /*noiseScaleDeg=*/1, cur);
+        std::cerr << " mult..." << std::flush;
         cc->EvalMultInPlace(ct, pt_one);
+        std::cerr << " rescale..." << std::flush;
         cc->RescaleInPlace(ct);
+        std::cerr << " ok (now level=" << level_of(ct) << ")" << std::endl;
+        ++step;
     }
 }

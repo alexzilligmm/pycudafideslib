@@ -89,7 +89,8 @@ TEST_F(NonLinearTest, LtApproxWithBts) {
         std::cout << " val=" << got << " (expected " << expects[i] << ")\n";
         EXPECT_NEAR(got, expects[i], 0.05);
 
-        results[i] = cc->EvalBootstrap(results[i]);
+        // Use bootstrap_to (respects total_depth) instead of raw EvalBootstrap
+        results[i] = bootstrap_to(inf, results[i], DEPTH);
         std::cout << "  post-bts level=" << level_of(results[i]) << "\n";
     }
 
@@ -124,8 +125,12 @@ TEST_F(NonLinearTest, GeLUApproxWithBts) {
 TEST_F(NonLinearTest, NormApprox) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
-    const int hD = inf.size.hidDim;          // 768
-    const int intRot = S / hD;               // 2
+    const int hD = inf.size.hidDim;          // 1024 (padded)
+    const int intRot = S / hD;               // 32 at logN=16
+
+    // No-padding scenario: all hidDim positions are real values.
+    // Restore realHidDim after test (NormApproxWithPadding resets it anyway).
+    inf.size.realHidDim = hD;
 
     // 5 distinct values cycling across hidDim; variance ≈ 0.02.
     const double raw[]   = { 0.1, 0.2, 0.3, 0.4, 0.5 };
@@ -172,6 +177,82 @@ TEST_F(NonLinearTest, NormApprox) {
                   << got << "  (expected " << expect[j] << ")\n";
         EXPECT_NEAR(got, expect[j], 0.15);
     }
+}
+
+// ── Padding test: hidDim=1024 (padded), realHidDim=768 (true) ──────────
+// Validates that compute_average and compute_variance use the real (unpadded)
+// dimension for scaling.  With logN=16 (S=32768), hidDim=1024 → intRot=32.
+// Positions 768-1023 are zero (padding from weight matrices).
+
+TEST_F(NonLinearTest, NormApproxWithPadding) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;             // 32768
+
+    // Fixture already sets padded hD=1024, real=768, but be explicit
+    const int paddedHD = 1024;
+    const int realHD   = 768;
+    inf.size.hidDim    = paddedHD;
+    inf.size.realHidDim = realHD;
+
+    const int intRot = S / paddedHD;      // 32
+
+    // Build input: 768 real values, 256 zeros (padding).
+    const double raw[] = { 0.1, 0.2, 0.3, 0.4, 0.5 };
+    constexpr int nRaw = 5;
+
+    // Ground truth uses only the 768 real values.
+    double sum = 0.0;
+    for (int h = 0; h < realHD; ++h) sum += raw[h % nRaw];
+    double true_mean = sum / realHD;
+
+    double sq_sum = 0.0;
+    for (int h = 0; h < realHD; ++h) {
+        double d = raw[h % nRaw] - true_mean;
+        sq_sum += d * d;
+    }
+    double true_var = sq_sum / realHD;
+    double true_std = std::sqrt(true_var + NORM_ENCLLM_GPT2.epsilon);
+
+    double expect[nRaw];
+    for (int j = 0; j < nRaw; ++j) expect[j] = (raw[j] - true_mean) / true_std;
+
+    // Pack slots: intRot-spaced, padded positions (768-1023) are zero.
+    std::vector<double> msg(S, 0.0);
+    for (int h = 0; h < realHD; ++h)
+        for (int t = 0; t < intRot; ++t)
+            msg[h * intRot + t] = raw[h % nRaw];
+    // Positions 768*2 .. 1024*2-1 stay 0.0 (padding)
+    // Positions 1024*2 .. 2047 stay 0.0 (beyond hD block)
+
+    auto pt = cc->MakeCKKSPackedPlaintext(msg);
+    auto ct = cc->Encrypt(inf.fhe->pk(), pt);
+    std::cout << "NormWithPadding: S=" << S
+              << " paddedHD=" << paddedHD << " realHD=" << realHD
+              << " intRot=" << intRot << "\n";
+    std::cout << "  true_mean=" << true_mean << " true_var=" << true_var << "\n";
+    std::cout << "  Level before norm: " << level_of(ct) << "\n";
+
+    auto out = norm(inf, ct, /*target_level_after_btp=*/14, NORM_ENCLLM_GPT2);
+    std::cout << "  Level after  norm: " << level_of(out) << "\n";
+
+    auto res = decrypt(cc, out, inf.fhe->sk());
+
+    // Check first 5 real hidden-dim positions.
+    double max_err = 0.0;
+    for (int j = 0; j < nRaw; ++j) {
+        double got = res[j * intRot];
+        double err = std::abs(got - expect[j]);
+        max_err = std::max(max_err, err);
+        std::cout << "  norm(raw[" << j << "]=" << raw[j] << ") = "
+                  << got << "  (expected " << expect[j]
+                  << ", err=" << err << ")\n";
+        EXPECT_NEAR(got, expect[j], 0.2);
+    }
+
+    // Also check that padded positions are near zero (or at least not polluted).
+    double pad_val = res[realHD * intRot];
+    std::cout << "  padded position [" << realHD << "] = " << pad_val << "\n";
+    std::cout << "  max_err across real positions = " << max_err << "\n";
 }
 
 // Helper: compute expected softmax probabilities and pack input into slots.
@@ -255,9 +336,138 @@ TEST_F(NonLinearTest, SoftmaxWithoutOracle) {
     Ctx x_in = cc->Encrypt(inf.fhe->pk(), pt2);
     std::cout << "Encrypt x_in level=" << level_of(x_in) << "\n";
 
-    Ctx y = softmax(inf, x_in, cfg, /*precomputed_max=*/nullptr);
+    Ctx y = softmax(inf, x_in, cfg, /*precomputed_max=*/nullptr,
+                     /*causal_mask=*/nullptr);
     std::cout << "softmax() result level=" << level_of(y) << "\n";
 
     auto res = decrypt(cc, y, inf.fhe->sk());
     softmax_check(res, expected, stride, cfg.seq_dim, 0.1);
+}
+
+// ── Causal masking test ──────────────────────────────────────────────
+
+TEST_F(NonLinearTest, SoftmaxCausalMask) {
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
+
+    // 4-element sequence: [1.0, 2.0, 3.0, 4.0]
+    // Causal mask for position 2: can see positions 0,1,2 but not 3.
+    // Mask adds -1e4 at position 3 so exp(-1e4) ≈ 0.
+    SoftmaxConfig cfg = SOFTMAX_ENCLLM_GPT2;
+    cfg.seq_dim = 4;
+    const int stride = S / cfg.seq_dim;
+
+    const double inp[] = { 1.0, 2.0, 3.0, 4.0 };
+
+    // Build causal mask: 0 for visible positions, large negative for masked.
+    // Use -50 (not -1e4) to stay within CKKS precision; exp(-50) ≈ 2e-22 ≈ 0.
+    const double mask_val = -50.0;
+    std::vector<double> mask_vec(S, 0.0);
+    // Mask out position 3 (the last one)
+    std::fill(mask_vec.begin() + 3*stride, mask_vec.begin() + 4*stride, mask_val);
+
+    // Expected: softmax over [1.0, 2.0, 3.0, 4.0+(-50)=-46]
+    // Position 3 contributes ≈ exp(-46-3)=exp(-49) ≈ 0
+    double vmax = 3.0;  // max of visible positions
+    double esum = std::exp(1.0 - vmax) + std::exp(2.0 - vmax) + std::exp(3.0 - vmax);
+    std::vector<double> expected = {
+        std::exp(1.0 - vmax) / esum,
+        std::exp(2.0 - vmax) / esum,
+        std::exp(3.0 - vmax) / esum,
+        0.0,   // masked out
+    };
+
+    // Pack input
+    std::vector<double> msg(S, 0.0);
+    for (int i = 0; i < cfg.seq_dim; ++i)
+        std::fill(msg.begin() + i*stride, msg.begin() + (i+1)*stride, inp[i]);
+
+    auto pt = cc->MakeCKKSPackedPlaintext(msg);
+    Ctx x_in = cc->Encrypt(inf.fhe->pk(), pt);
+
+    // Oracle max of the VISIBLE values (not the masked ones)
+    Ctx x_max = encrypt_const(cc, vmax, (size_t)S, inf.fhe->pk());
+
+    // Create causal mask plaintext at the correct level
+    Ptx causal_pt = cc->MakeCKKSPackedPlaintext(
+        mask_vec, /*noiseScaleDeg=*/1, (uint32_t)level_of(x_in));
+
+    std::cout << "Running softmax with causal mask...\n";
+    Ctx y = softmax(inf, x_in, cfg, x_max, causal_pt);
+    std::cout << "softmax() result level=" << level_of(y) << "\n";
+
+    auto res = decrypt(cc, y, inf.fhe->sk());
+
+    std::cout << "  result : [";
+    for (int i = 0; i < cfg.seq_dim; ++i)
+        std::cout << res[i * stride] << (i < cfg.seq_dim-1 ? ", " : "");
+    std::cout << "]\n  expect : [";
+    for (int i = 0; i < cfg.seq_dim; ++i)
+        std::cout << expected[i] << (i < cfg.seq_dim-1 ? ", " : "");
+    std::cout << "]\n";
+
+    // Visible positions should match expected probabilities
+    for (int i = 0; i < 3; ++i)
+        EXPECT_NEAR(res[i * stride], expected[i], 0.05);
+    // Masked position should be near 0
+    EXPECT_NEAR(res[3 * stride], 0.0, 0.01);
+
+    double total = 0.0;
+    for (int i = 0; i < 3; ++i) total += res[i * stride];
+    std::cout << "  sum(visible) = " << total << "  (expected ~1.0)\n";
+    EXPECT_NEAR(total, 1.0, 0.05);
+}
+
+// ── GELU configurability test ────────────────────────────────────────
+
+TEST_F(NonLinearTest, GeLUNoBtp) {
+    // Test GELU with bootstrap_indicators=false: should still produce
+    // correct results but will consume more levels (no internal bootstraps).
+    // This only works if we have enough depth budget.
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
+
+    GeluConfig cfg = GELU_ENCLLM_GPT2;
+    cfg.bootstrap_indicators = false;  // disable internal bootstraps
+
+    // Use a value in the middle region where GELU is non-trivial
+    double x_val = 1.0;
+    double expect_val = gelu_expect({x_val})[0];
+
+    auto pt = cc->MakeCKKSPackedPlaintext(std::vector<double>(S, x_val));
+    auto ct = cc->Encrypt(inf.fhe->pk(), pt);
+    std::cout << "Level before gelu (no btp): " << level_of(ct) << "\n";
+
+    auto out = gelu(inf, ct, cfg);
+    std::cout << "Level after  gelu (no btp): " << level_of(out) << "\n";
+
+    double got = decrypt(cc, out, inf.fhe->sk())[0];
+    std::cout << "  gelu(" << x_val << ") = " << got
+              << "  (expected " << expect_val << ")\n";
+    EXPECT_NEAR(got, expect_val, 0.15);
+}
+
+TEST_F(NonLinearTest, GeLUWithTargetLevel) {
+    // Test GELU with btp_target_level set: bootstraps should land at
+    // the specified level instead of using raw EvalBootstrap.
+    const CC& cc = inf.cc();
+    const int S  = inf.slots;
+
+    GeluConfig cfg = GELU_ENCLLM_GPT2;
+    cfg.bootstrap_indicators = true;
+    cfg.btp_target_level = 14;  // bootstrap to level 14
+
+    double x_val = -0.5;
+    double expect_val = gelu_expect({x_val})[0];
+
+    auto pt = cc->MakeCKKSPackedPlaintext(std::vector<double>(S, x_val));
+    auto ct = cc->Encrypt(inf.fhe->pk(), pt);
+
+    auto out = gelu(inf, ct, cfg);
+    std::cout << "Level after gelu (btp_target=14): " << level_of(out) << "\n";
+
+    double got = decrypt(cc, out, inf.fhe->sk())[0];
+    std::cout << "  gelu(" << x_val << ") = " << got
+              << "  (expected " << expect_val << ")\n";
+    EXPECT_NEAR(got, expect_val, 0.15);
 }

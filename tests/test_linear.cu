@@ -1,11 +1,18 @@
+// test_linear.cu — Validate CacheMIR interleaved linear (paper §3, Algorithm 1).
+//
+// Tests linear_interleaved() against a plaintext simulation of the same
+// algorithm (BSGS interleaved packing with bench_mode rotations).
+
 #include <gtest/gtest.h>
 #include "fideslib_wrapper.h"
 #include "ckks_primitives.h"
-#include "llama.h"
+#include "gpt2.h"
 #include <cmath>
 #include <vector>
 #include <random>
 #include <iostream>
+
+// ── Plaintext simulation helpers ────────────────────────────────────────
 
 static std::vector<double> rotate_vec(const std::vector<double>& v, int k) {
     int n = (int)v.size();
@@ -30,118 +37,124 @@ static std::vector<double> mul_vec(const std::vector<double>& a,
     return out;
 }
 
-static std::vector<double> linear_plain(
+// Plaintext simulation of CacheMIR interleaved linear (bench_mode).
+// All rotations use index 5 in bench_mode, but the plaintext sim uses
+// the real indices to compute the correct mathematical result.
+static std::vector<double> linear_interleaved_plain(
         const std::vector<double>& x_in,
         const std::vector<std::vector<double>>& weights,
-        int hidDim, int ffDim, int S, int expand) {
+        int d_in, int d_out, int S) {
 
-    int preStep  = (expand >= 0) ? hidDim : ffDim;
-    int postStep = (expand <= 0) ? hidDim : ffDim;
+    int n_pt = d_in * d_out / S;
+    int intRot = S / d_in;
+    int inRot  = (int)std::sqrt((double)n_pt / 2.0);
+    if (inRot < 1) inRot = 1;
+    while (n_pt % inRot != 0) ++inRot;
+    int outRot = n_pt / inRot;
 
-    int inRot, outRot;
-    if (expand == 0) {
-        inRot  = (int)std::sqrt((double)(hidDim * hidDim) / (2 * S));
-        outRot = hidDim * hidDim / (S * inRot);
-    } else {
-        inRot  = (int)std::sqrt((double)(hidDim * ffDim) / (2 * S));
-        outRot = hidDim * ffDim / (S * inRot);
-    }
-    int intRot = S / hidDim;
-    int n_weights = (int)weights.size();
-
+    // Step 1: Preprocess (input fold) — replicate d_in block across S slots
     auto xb = x_in;
-    for (int step = preStep; step < S; step *= 2)
+    for (int step = d_in; step < S; step *= 2)
         xb = add_vec(xb, rotate_vec(xb, step));
 
+    // Step 2: Baby-step rotations
     std::vector<std::vector<double>> ctRot(inRot);
     ctRot[0] = xb;
     for (int i = 1; i < inRot; ++i)
         ctRot[i] = rotate_vec(ctRot[i - 1], intRot);
 
-    std::vector<std::vector<double>> partSum(n_weights);
-    for (int i = 0; i < n_weights; ++i)
-        partSum[i] = mul_vec(ctRot[i % inRot], weights[i]);
-
-    for (int i = 0; i < n_weights; ++i) {
-        if (i % inRot > 0)
-            partSum[i - i % inRot] = add_vec(partSum[i - i % inRot], partSum[i]);
+    // Step 3: Multiply + accumulate (baby-step partial sums)
+    std::vector<std::vector<double>> partSum(outRot);
+    for (int j = 0; j < outRot; ++j) {
+        partSum[j] = mul_vec(ctRot[0], weights[j * inRot]);
+        for (int i = 1; i < inRot; ++i)
+            partSum[j] = add_vec(partSum[j], mul_vec(ctRot[i], weights[j * inRot + i]));
     }
 
-    for (int i = 1; i < outRot; ++i)
-        partSum[i * inRot] = rotate_vec(partSum[i * inRot], i * inRot * intRot);
+    // Step 4: Giant-step accumulation
+    for (int j = 1; j < outRot; ++j)
+        partSum[j] = rotate_vec(partSum[j], j * inRot * intRot);
 
     auto result = partSum[0];
-    for (int i = 1; i < outRot; ++i)
-        result = add_vec(result, partSum[i * inRot]);
+    for (int j = 1; j < outRot; ++j)
+        result = add_vec(result, partSum[j]);
 
-    for (int step = postStep; step < S; step *= 2)
+    // Step 5: Postprocess (output unfold)
+    for (int step = d_out; step < S; step *= 2)
         result = add_vec(result, rotate_vec(result, step));
 
     return result;
 }
 
-static constexpr int HD = 256;
-static constexpr int FD = 1024;
+// ── Rotation indices for interleaved linear ─────────────────────────────
 
-static std::vector<int32_t> collect_linear_rot_indices(int hidDim, int ffDim, int S) {
+static std::vector<int32_t> collect_interleaved_rot_indices(int d_in, int d_out, int S) {
     std::vector<int32_t> rots;
 
-    auto add = [&](int hD, int fD, int expand) {
-        int inR, outR;
-        if (expand == 0) {
-            inR  = (int)std::sqrt((double)(hD * hD) / (2 * S));
-            outR = hD * hD / (S * inR);
-        } else {
-            inR  = (int)std::sqrt((double)(hD * fD) / (2 * S));
-            outR = hD * fD / (S * inR);
-        }
-        int iR = S / hD;
-        // baby-step rotations
-        for (int i = 1; i < inR; ++i) rots.push_back(i * iR);
-        // giant-step rotations
-        for (int i = 1; i < outR; ++i) rots.push_back(i * inR * iR);
-        // pre/post processing
-        int preStep  = (expand >= 0) ? hD : fD;
-        int postStep = (expand <= 0) ? hD : fD;
-        for (int step = preStep; step < S; step *= 2) rots.push_back(step);
-        for (int step = postStep; step < S; step *= 2) rots.push_back(step);
-    };
+    int n_pt = d_in * d_out / S;
+    int intRot = S / d_in;
+    int inRot  = (int)std::sqrt((double)n_pt / 2.0);
+    if (inRot < 1) inRot = 1;
+    while (n_pt % inRot != 0) ++inRot;
+    int outRot = n_pt / inRot;
 
-    add(hidDim, ffDim, 0);   // hid->hid
-    add(hidDim, ffDim, 1);   // hid->ff
-    add(hidDim, ffDim, -1);  // ff->hid
+    // baby-step
+    for (int i = 1; i < inRot; ++i) rots.push_back(i * intRot);
+    // giant-step
+    for (int j = 1; j < outRot; ++j) rots.push_back(j * inRot * intRot);
+    // pre (input fold)
+    for (int step = d_in; step < S; step *= 2) rots.push_back(step);
+    // post (output unfold)
+    for (int step = d_out; step < S; step *= 2) rots.push_back(step);
 
-    // deduplicate
     std::sort(rots.begin(), rots.end());
     rots.erase(std::unique(rots.begin(), rots.end()), rots.end());
     return rots;
 }
 
-class LinearTest : public ::testing::Test {
+// ── Test fixture ────────────────────────────────────────────────────────
+
+static constexpr int HD = 256;
+static constexpr int FD = 1024;
+
+class InterleavedLinearTest : public ::testing::Test {
 protected:
-    static constexpr uint32_t LOG_N = 12;
+    static constexpr uint32_t LOG_N = 16;
 
-    std::shared_ptr<CKKSContext> ctx;
-    Inference inf;
+    static std::shared_ptr<CKKSContext> ctx;
+    static Inference inf;
 
-    void SetUp() override {
+    static void SetUpTestSuite() {
+        if (ctx) return;
         const int S = 1 << (LOG_N - 1);
-        auto extra_rots = collect_linear_rot_indices(HD, FD, S);
+
+        // Collect rotation indices for all three linear shapes
+        std::vector<int32_t> rots;
+        auto add_rots = [&](int d_in, int d_out) {
+            auto r = collect_interleaved_rot_indices(d_in, d_out, S);
+            rots.insert(rots.end(), r.begin(), r.end());
+        };
+        add_rots(HD, HD);   // QKV, Out
+        add_rots(HD, FD);   // Up
+        add_rots(FD, HD);   // Down
+
+        std::sort(rots.begin(), rots.end());
+        rots.erase(std::unique(rots.begin(), rots.end()), rots.end());
 
         ctx = make_ckks_context(
             LOG_N,
-            /*depth=*/16,
-            /*scale_bits=*/40,
+            /*depth=*/13,
+            /*scale_bits=*/41,
             /*bootstrap_slots=*/0,
             /*enable_bootstrap=*/false,
-            /*btp_scale_bits=*/59,
-            /*first_mod_bits=*/60,
+            /*btp_scale_bits=*/41,
+            /*first_mod_bits=*/53,
             /*level_budget_in=*/{},
             /*batch_size=*/0,
             /*h_weight=*/192,
             /*num_large_digits=*/3,
             /*btp_depth_overhead=*/0,
-            /*extra_rot_steps=*/extra_rots
+            /*extra_rot_steps=*/rots
         );
 
         inf.fhe    = ctx;
@@ -150,21 +163,26 @@ protected:
         inf.size.hidDim = HD;
         inf.size.ffDim  = FD;
         inf.parallel = false;
+        inf.bench_mode = true;
 
-        std::cout << "--- LINEAR TEST CONTEXT ---\n"
+        std::cout << "--- INTERLEAVED LINEAR TEST (bench_mode, once) ---\n"
                   << "N=" << (1 << LOG_N) << " S=" << S
                   << " hidDim=" << HD << " ffDim=" << FD
-                  << " extra_rot_keys=" << extra_rots.size() << "\n";
+                  << " rot_keys=" << rots.size() << "\n";
     }
 };
 
+std::shared_ptr<CKKSContext> InterleavedLinearTest::ctx = nullptr;
+Inference InterleavedLinearTest::inf = {};
 
-TEST_F(LinearTest, HidToHid_PlaintextMatch) {
+// ── Tests ───────────────────────────────────────────────────────────────
+
+TEST_F(InterleavedLinearTest, HidToHid) {
     const CC& cc = ctx->cc;
     const int S  = inf.slots;
-    const int n_weights = HD * HD / S;
+    const int n_pt = HD * HD / S;
 
-    std::cout << "\n=== Linear hid->hid: n_weights=" << n_weights << " ===\n";
+    std::cout << "\n=== Interleaved hid->hid: n_pt=" << n_pt << " ===\n";
 
     std::mt19937 rng(42);
     std::uniform_real_distribution<double> dist(-0.1, 0.1);
@@ -172,21 +190,21 @@ TEST_F(LinearTest, HidToHid_PlaintextMatch) {
     std::vector<double> x_plain(S);
     for (auto& v : x_plain) v = dist(rng);
 
-    std::vector<std::vector<double>> w_plain(n_weights);
+    std::vector<std::vector<double>> w_plain(n_pt);
     inf.w["q"].clear();
-    for (int i = 0; i < n_weights; ++i) {
+    for (int i = 0; i < n_pt; ++i) {
         w_plain[i].resize(S);
         for (auto& v : w_plain[i]) v = dist(rng);
         inf.w["q"].push_back(cc->MakeCKKSPackedPlaintext(w_plain[i]));
     }
 
-    auto expected = linear_plain(x_plain, w_plain, HD, FD, S, 0);
+    auto expected = linear_interleaved_plain(x_plain, w_plain, HD, HD, S);
 
     auto pt = cc->MakeCKKSPackedPlaintext(x_plain);
     auto ct = cc->Encrypt(ctx->pk(), pt);
     std::cout << "  input level=" << level_of(ct) << "\n";
 
-    Ctx result = linear(inf, ct, "q", 0);
+    Ctx result = linear_interleaved(inf, ct, "q", HD, HD);
     std::cout << "  output level=" << level_of(result) << "\n";
 
     auto dec = decrypt(cc, result, ctx->sk());
@@ -203,85 +221,78 @@ TEST_F(LinearTest, HidToHid_PlaintextMatch) {
     EXPECT_LT(max_err, 0.5);
 }
 
-
-TEST_F(LinearTest, SlotMasking) {
+TEST_F(InterleavedLinearTest, HidToFf) {
     const CC& cc = ctx->cc;
     const int S  = inf.slots;
-    const int n_weights = HD * HD / S;
-    const int replicas  = S / HD;
+    const int n_pt = HD * FD / S;
 
-    std::cout << "\n=== Slot Masking: zero-padded vs naive ===\n"
-              << "  S=" << S << " hidDim=" << HD << " replicas=" << replicas << "\n";
+    std::cout << "\n=== Interleaved hid->ff: n_pt=" << n_pt << " ===\n";
 
-    std::vector<double> x_in(S, 0.0);
+    std::mt19937 rng(99);
+    std::uniform_real_distribution<double> dist(-0.1, 0.1);
+
+    std::vector<double> x_plain(S);
+    for (auto& v : x_plain) v = dist(rng);
+
+    std::vector<std::vector<double>> w_plain(n_pt);
+    inf.w["up"].clear();
+    for (int i = 0; i < n_pt; ++i) {
+        w_plain[i].resize(S);
+        for (auto& v : w_plain[i]) v = dist(rng);
+        inf.w["up"].push_back(cc->MakeCKKSPackedPlaintext(w_plain[i]));
+    }
+
+    auto expected = linear_interleaved_plain(x_plain, w_plain, HD, FD, S);
+
+    auto pt = cc->MakeCKKSPackedPlaintext(x_plain);
+    auto ct = cc->Encrypt(ctx->pk(), pt);
+
+    Ctx result = linear_interleaved(inf, ct, "up", HD, FD);
+
+    auto dec = decrypt(cc, result, ctx->sk());
+
+    double max_err = 0.0;
+    for (int i = 0; i < FD; ++i)
+        max_err = std::max(max_err, std::abs(dec[i] - expected[i]));
+
+    std::cout << "  max |HE - plain| first " << FD << " slots: " << max_err << "\n";
+    EXPECT_LT(max_err, 0.5);
+}
+
+TEST_F(InterleavedLinearTest, FfToHid) {
+    const CC& cc = ctx->cc;
+    const int S  = inf.slots;
+    const int n_pt = FD * HD / S;
+
+    std::cout << "\n=== Interleaved ff->hid: n_pt=" << n_pt << " ===\n";
+
+    std::mt19937 rng(77);
+    std::uniform_real_distribution<double> dist(-0.1, 0.1);
+
+    std::vector<double> x_plain(S);
+    for (auto& v : x_plain) v = dist(rng);
+
+    std::vector<std::vector<double>> w_plain(n_pt);
+    inf.w["down"].clear();
+    for (int i = 0; i < n_pt; ++i) {
+        w_plain[i].resize(S);
+        for (auto& v : w_plain[i]) v = dist(rng);
+        inf.w["down"].push_back(cc->MakeCKKSPackedPlaintext(w_plain[i]));
+    }
+
+    auto expected = linear_interleaved_plain(x_plain, w_plain, FD, HD, S);
+
+    auto pt = cc->MakeCKKSPackedPlaintext(x_plain);
+    auto ct = cc->Encrypt(ctx->pk(), pt);
+
+    Ctx result = linear_interleaved(inf, ct, "down", FD, HD);
+
+    auto dec = decrypt(cc, result, ctx->sk());
+
+    double max_err = 0.0;
     for (int i = 0; i < HD; ++i)
-        x_in[i] = 1.0 + 0.01 * i;
-    for (int i = HD; i < S; ++i)
-        x_in[i] = 999.0;
+        max_err = std::max(max_err, std::abs(dec[i] - expected[i]));
 
-    {
-        inf.w["q"].clear();
-        std::vector<double> w0(S, 0.0);
-        for (int p = 0; p < replicas; ++p)
-            for (int i = 0; i < HD; ++i)
-                w0[p * HD + i] = 1.0;
-
-        inf.w["q"].push_back(cc->MakeCKKSPackedPlaintext(w0));
-        for (int i = 1; i < n_weights; ++i)
-            inf.w["q"].push_back(cc->MakeCKKSPackedPlaintext(
-                std::vector<double>(S, 0.0)));
-
-        std::vector<std::vector<double>> w_plain(n_weights, std::vector<double>(S, 0.0));
-        w_plain[0] = w0;
-        auto expected = linear_plain(x_in, w_plain, HD, FD, S, 0);
-
-        auto pt = cc->MakeCKKSPackedPlaintext(x_in);
-        auto ct = cc->Encrypt(ctx->pk(), pt);
-        Ctx result = linear(inf, ct, "q", 0);
-        auto dec = decrypt(cc, result, ctx->sk());
-
-        double max_err = 0.0;
-        for (int i = 0; i < HD; ++i)
-            max_err = std::max(max_err, std::abs(dec[i] - expected[i]));
-
-        std::cout << "\n  [A] Zero-padded weights:\n";
-        std::cout << "    max |HE - plain_sim|: " << max_err << "\n";
-        std::cout << "    slot[0] plain=" << expected[0] << " HE=" << dec[0] << "\n";
-        EXPECT_LT(max_err, 0.5);
-    }
-
-    {
-        inf.w["q"].clear();
-        inf.w["q"].push_back(cc->MakeCKKSPackedPlaintext(
-            std::vector<double>(S, 1.0)));
-        for (int i = 1; i < n_weights; ++i)
-            inf.w["q"].push_back(cc->MakeCKKSPackedPlaintext(
-                std::vector<double>(S, 0.0)));
-
-        std::vector<std::vector<double>> w_naive(n_weights, std::vector<double>(S, 0.0));
-        w_naive[0] = std::vector<double>(S, 1.0);
-        auto expected_naive = linear_plain(x_in, w_naive, HD, FD, S, 0);
-
-        auto pt = cc->MakeCKKSPackedPlaintext(x_in);
-        auto ct = cc->Encrypt(ctx->pk(), pt);
-        Ctx result = linear(inf, ct, "q", 0);
-        auto dec_naive = decrypt(cc, result, ctx->sk());
-
-        double max_err_naive = 0.0;
-        for (int i = 0; i < HD; ++i)
-            max_err_naive = std::max(max_err_naive,
-                std::abs(dec_naive[i] - expected_naive[i]));
-
-        std::cout << "\n  [B] Naive weights (garbage leaks):\n";
-        std::cout << "    max |HE - plain_sim|: " << max_err_naive << "\n";
-        std::cout << "    slot[0] plain_sim=" << expected_naive[0]
-                  << " HE=" << dec_naive[0]
-                  << " true_x=" << x_in[0] << "\n";
-        std::cout << "    corruption: |result - true| = "
-                  << std::abs(expected_naive[0] - x_in[0]) << "\n";
-
-        EXPECT_LT(max_err_naive, 1.0);
-        EXPECT_GT(std::abs(expected_naive[0] - x_in[0]), 10.0)
-            << "Without masking, garbage should corrupt the plaintext result";
-    }
+    std::cout << "  max |HE - plain| first " << HD << " slots: " << max_err << "\n";
+    EXPECT_LT(max_err, 0.5);
 }

@@ -23,7 +23,9 @@ SEQLEN=512
 NUMHEADS=32
 BUILD_DIR="build"
 BINARY="${BUILD_DIR}/bin/cuda_cachemir"
+PARALLEL="true"
 MAX_LEVEL=16
+OUTPUT_PREFIX=""
 TEST_TIMEOUT_SECS="${TEST_TIMEOUT_SECS:-0}"
 
 # ── Parse args ───────────────────────────────────────────────────────────
@@ -36,6 +38,8 @@ while [[ $# -gt 0 ]]; do
         --seqLen)   SEQLEN="$2";   shift 2 ;;
         --numHeads) NUMHEADS="$2"; shift 2 ;;
         --maxLevel) MAX_LEVEL="$2"; shift 2 ;;
+        --parallel) PARALLEL="$2"; shift 2 ;;
+        --output-prefix) OUTPUT_PREFIX="$2"; shift 2 ;;
         --test-timeout) TEST_TIMEOUT_SECS="$2"; shift 2 ;;
         --build)    BUILD_DIR="$2"; BINARY="${BUILD_DIR}/bin/cuda_cachemir"; shift 2 ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
@@ -58,7 +62,7 @@ for kv in \
     fi
 done
 
-COMMON_FLAGS="-logN $LOGN -hidDim $HIDDIM -ffDim $FFDIM -seqLen $SEQLEN -numHeads $NUMHEADS"
+COMMON_FLAGS="-model $MODEL -logN $LOGN -hidDim $HIDDIM -ffDim $FFDIM -seqLen $SEQLEN -numHeads $NUMHEADS -parallel $PARALLEL"
 
 if [ ! -x "$BINARY" ]; then
     echo "Binary not found at $BINARY"
@@ -66,8 +70,13 @@ if [ ! -x "$BINARY" ]; then
     exit 1
 fi
 
-output_file="raw_result.csv"
-summary_file="new_data.csv"
+if [[ -n "$OUTPUT_PREFIX" ]]; then
+    output_file="${OUTPUT_PREFIX}_raw_result.csv"
+    summary_file="${OUTPUT_PREFIX}_new_data.csv"
+else
+    output_file="raw_result.csv"
+    summary_file="new_data.csv"
+fi
 rm -f "$output_file" "$summary_file"
 
 echo "timestamp,status,module,level,time" > "$output_file"
@@ -145,6 +154,28 @@ if [ "$HAS_GELU" = "1" ]; then
 fi
 
 echo ""
+echo "=== Benchmarking Bootstrap ==="
+echo ""
+
+# Run bootstrap at a mid-range level to get representative latency
+BOOT_LAT=""
+for level in $(seq 1 $MAX_LEVEL); do
+    run_test "Bootstrap" "$level"
+done
+# Extract the median bootstrap latency from raw results
+BOOT_LAT=$(python3 -c "
+import csv, statistics
+vals = []
+with open('$output_file') as f:
+    for r in csv.reader(f):
+        if len(r)>=5 and r[2]=='Bootstrap' and r[1]=='0':
+            try: vals.append(float(r[4]))
+            except: pass
+if vals: print(f'{statistics.median(vals):.6f}')
+")
+echo "Bootstrap latency (median): ${BOOT_LAT:-N/A} seconds"
+
+echo ""
 echo "=== Benchmarking Softmax ==="
 echo ""
 
@@ -189,7 +220,7 @@ for test in "${SUMMARY_OPS[@]}"; do
                     print arr[1]
                 }
             } else {
-                print "0.00"
+                print "0"
             }
         }
     ' "$output_file")
@@ -198,15 +229,15 @@ for test in "${SUMMARY_OPS[@]}"; do
     i=1
     while IFS= read -r t; do
         if [[ -z "$t" || "$t" == "N/A" ]]; then
-            printf "\t0.00" >> "$summary_file"
+            printf "\t0" >> "$summary_file"
         else
-            printf "\t%.2f" "$t" >> "$summary_file"
+            printf "\t%.6f" "$t" >> "$summary_file"
         fi
         ((i++))
     done <<< "$times"
 
     while [ $i -le $MAX_LEVEL ]; do
-        printf "\t0.00" >> "$summary_file"
+        printf "\t0" >> "$summary_file"
         ((i++))
     done
 
@@ -219,4 +250,15 @@ cat "$summary_file"
 echo ""
 
 echo "=== Running bootstrap placement optimizer ==="
-python3 bootstrap.py --prune=1 --file="$summary_file" --model="$MODEL"
+BOOT_OPT=""
+if [[ -n "$BOOT_LAT" && "$BOOT_LAT" != "N/A" ]]; then
+    BOOT_OPT="--boot-lat $BOOT_LAT"
+    echo "Using measured bootstrap latency: $BOOT_LAT s"
+fi
+# Pass --uniform if set in environment to force same BTP config for all blocks
+UNIFORM_OPT=""
+if [[ "${UNIFORM_PLACEMENT:-0}" == "1" ]]; then
+    UNIFORM_OPT="--uniform"
+    echo "Uniform mode: BTP forced at start of every decoder block"
+fi
+uv run python bootstrap.py --prune=1 --file="$summary_file" --model="$MODEL" --logN="$LOGN" --max-level="$MAX_LEVEL" $BOOT_OPT $UNIFORM_OPT || echo "bootstrap.py failed (non-fatal)"

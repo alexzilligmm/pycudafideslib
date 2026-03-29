@@ -1,7 +1,22 @@
+__pycache__/
+
 deps/
 logs/
 build/
 cachemir/
 weights*/
+input_data/*
+test_vectors/
+test_vectors_*/
 
 *.slurm
+
+.venv/
+.claude/
+docs/
+
+*.csv
+*.json
+*.python-version
+*lock
+*pyc

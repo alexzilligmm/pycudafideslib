@@ -213,28 +213,49 @@ Ctx compute_average(Inference& inf, const Ctx& x_in) {
 /// @param x_in, the input ciphertext
 /// @param mean, a precomputed mean ciphertext (as returned by compute_average)
 /// @return a ciphertext holding the variance replicated across all slots
+///
+/// Uses realHidDim (unpadded dimension) for scaling so that zero-padded
+/// slots (e.g. positions 768-1023 when 768→1024) don't bias the result.
+/// The rotation pattern uses hD (padded) because slot layout has period hD.
 Ctx compute_variance(Inference& inf, const Ctx& x_in, Ctx mean) {
-    const CC& cc = inf.cc();
-    const int S  = inf.slots;
-    const int hD = inf.size.hidDim;
+    const CC& cc  = inf.cc();
+    const int S   = inf.slots;
+    const int hD  = inf.size.hidDim;           // padded (BSGS block size)
+    const int rD  = inf.size.getRealHidDim();  // unpadded (true vector length)
 
-    Ctx xd = cc->EvalMult(x_in, (double)hD);
+    // Scale x by the real dimension so that (rD*x - mean) = rD*(x - mean/rD)
+    Ctx xd = cc->EvalMult(x_in, (double)rD);
 
     drop_levels(cc, mean, 1);
-    Ctx varc = cc->EvalSub(xd, mean); // N*(x - mean)
+    Ctx varc = cc->EvalSub(xd, mean); // rD*(x - mean)
 
-    // Zero garbage slots before squaring — mean is broadcast to all slots
-    // so garbage positions hold -mean instead of 0 after the subtraction.
-    varc = mask_slots(cc, varc, S, hD);
+    // Zero padded slots before squaring.
+    // With padding (rD < hD) the standard mask_slots does nothing because
+    // hD evenly divides S.  Build a within-block mask that keeps only the
+    // first rD elements out of every hD-sized block (intRot-spaced layout).
+    if (rD < hD) {
+        const int t = S / hD;           // intRot (replication factor)
+        std::vector<double> m(S, 0.0);
+        for (int j = 0; j < rD; ++j)    // real elements only
+            for (int r = 0; r < t; ++r)  // all replicas within the block
+                m[j * t + r] = 1.0;
+        Ptx pm = cc->MakeCKKSPackedPlaintext(
+            m, /*noiseScaleDeg=*/1, (uint32_t)level_of(varc));
+        varc = cc->EvalMult(varc, pm);
+    } else {
+        varc = mask_slots(cc, varc, S, hD);
+    }
 
     cc->EvalSquareInPlace(varc);
 
+    // Sum across all hD positions (rotation pattern matches intRot-spaced layout)
     for (int i = S / hD; i < S; i *= 2) {
         Ctx tmp = cc->EvalRotate(varc, i);
         cc->EvalAddInPlace(varc, tmp);
     }
 
-    double inv_d3 = 1.0 / std::pow((double)hD, 3.0); // 1/N^3 * sum(N^2*(x-mean)^2) = variance
+    // 1/rD^3 * sum(rD^2*(x-mean)^2) = variance
+    double inv_d3 = 1.0 / std::pow((double)rD, 3.0);
     cc->EvalMultInPlace(varc, inv_d3);
 
     return varc;
