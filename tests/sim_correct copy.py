@@ -61,22 +61,48 @@ def encode_weights(W, d_in, d_out, N):
         k = idx // r_i                      # giant-step index
         p_jk = np.zeros(N)
         for i in range(N):
-            i_x = (i + j * t_prime) % N
-            row = pmod(i_x // t1 + (i_x % t1) * stride, d_in)
-
-            if expand == -1:
-                row = row // alpha + (row % alpha) * d
-
-            i_shifted = (i + N - k * r_i * t_prime) % N
-            col = i_shifted // t2
-
+            if expand == 0:
+                row = (math.floor(i // t) + i % t + j * t) % d
+                col = (i // t - k * t * r_i) % d
             if expand == 1:
-                col = col // alpha + (col % alpha) * d
-            else:
-                col = col % d_out
+                row = (i // t + i % t + j * t) % d
+                col = (math.floor(i // t) + ((i // t_prime) % alpha) * d - k * t * r_i) % (alpha * d)
+            # TODO: down part is broken
+            if expand == -1:
+                row = (math.floor(i // t) + ((i // t_prime) % alpha) * d + i % t + j * t) % (alpha * d)
+                col = (i // t - k * t * r_i) % d
 
             p_jk[i] = W[row][col]
         plaintexts.append(p_jk)
+
+    seen = set()
+    for idx in range(n_pt):
+        j = idx % r_i
+        k = idx // r_i
+        for i in range(N):
+            if expand == 0:
+                row = (math.floor(i // t) + i % t + j * t) % d
+                col = (i // t - k * t * r_i) % d
+            if expand == 1:
+                row = (i // t + i % t + j * t) % d
+                col = (math.floor(i // t) + ((i // t_prime) % alpha) * d - k * t * r_i) % (alpha * d)
+            # TODO: down part is broken don't know why
+            if expand == -1:
+                row = (math.floor(i // t) + ((i // t_prime) % alpha) * d + i % t + j * t) % (alpha * d)
+                col = (i // t - k * t * r_i) % d
+            seen.add((row, col))
+    expected_pairs = {(r, c) for r in range(d_in) for c in range(d_out)}
+    missing = expected_pairs - seen
+    extra = seen - expected_pairs
+    if missing:
+        print(f"  ENCODE CHECK: {len(missing)} missing (row,col) pairs out of {d_in*d_out}")
+        for p in sorted(missing)[:20]:
+            print(f"    missing: row={p[0]} col={p[1]}")
+    if extra:
+        print(f"  ENCODE CHECK: {len(extra)} out-of-range (row,col) pairs")
+    if not missing and not extra:
+        print(f"  ENCODE CHECK: all {d_in*d_out} (row,col) pairs covered OK")
+
     return plaintexts
 
 
@@ -85,22 +111,21 @@ def gemv(cx, plaintexts, d_in, d_out, N):
     expand = -1 if d_in > d_out else (1 if d_in < d_out else 0)
 
     if expand >= 0:                              
-        t1 = N // min(d_in, d_out)
+        t1 = t
     else:                                       
-        t1 = N // max(d_in, d_out)
+        t1 = t_prime
 
     if expand <= 0:                             
-        t2 = N // min(d_in, d_out)
+        t2 = t_prime
     else:                                       
-        t2 = N // max(d_in, d_out)
+        t2 = t
 
     cx_rot = [None] * r_i
     cy_partial = [None] * n_pt
 
     step = 1
-    while step < t1:    
-        cx = cx + rot(cx, step * (d_in - 1))
-        step *= 2
+    for i in range(int(math.log2(t1))):   
+        cx = cx + rot(cx, (step ** i) * (d - 1))
 
     for j in range(r_i):                         # c''^x_j ← rot(c'^x, j·t')
         cx_rot[j] = rot(cx, j * t_prime)
@@ -112,31 +137,46 @@ def gemv(cx, plaintexts, d_in, d_out, N):
             cy_partial[i - j] = cy_partial[i - j] + cy_partial[i]
 
     for k in range(1, r_o):                      # rot(c'^y_k, k·t·r_i)  (paper line 54)
-        cy_partial[k * r_i] = rot(
-            cy_partial[k * r_i], k * t_prime * r_i)
+        cy_partial[r_o - k - 1] = rot(cy_partial[k * r_i], k * d * r_i)
 
     for k in range(1, r_o):
         cy_partial[0] = cy_partial[0] + cy_partial[k * r_i]
 
     cy = cy_partial[0]
-    nz = np.nonzero(cy)[0]
-    print(f"  cy BEFORE postproc: nonzero at {nz[:20]}, vals {cy[nz[:20]]}")
-    step = 1
-    while step < t2:
-        cy = cy + rot(cy, step)
-        step *= 2
+    for i in range(int(math.log2(t2))):
+        cy = cy + rot(cy, 2 ** i)
 
     return cy                                  
 
 def encode_input(x, d, N):
-    """Square / up:  c^x[i] = x[i/t] · I{t|i},  t = N/d."""
     t = N // d
     cx = np.zeros(N)
-    for m in range(d):
-        cx[m * t] = x[m]
-        
+
+    for i in range(N):
+        if i % t == 0:                  # I{t | i}
+            cx[i] = x[i // t]
+    used = set()
+
+    for i in range(N):
+        if i % t == 0:
+            idx = i // t
+            used.add(idx)
+
+    expected = set(range(d))
+
+    missing = expected - used
+    extra = used - expected
+
+    if missing:
+        print(f"INPUT CHECK: missing indices: {sorted(missing)}")
+    if extra:
+        print(f"INPUT CHECK: extra indices: {sorted(extra)}")
+    if not missing and not extra:
+        print(f"INPUT CHECK: all {d} entries used exactly once")
     return cx
 
+
+# TODO: fix this
 def encode_input_reduce(x, d_in, d_out, N):
     """Down:  c^x[i] = x[⌊i/t⌋ + (i/t')%alpha · d] · I{t'|i},  t' = N/d_in."""
     alpha = d_in // d_out
@@ -151,12 +191,13 @@ def encode_input_reduce(x, d_in, d_out, N):
     return cx
 
 
+# TODO: check this 
 def decode_output(cy, d, N):
     """Extract:  y[m] = c^y[m·t],  t = N/d."""
     t = N // d
     return np.array([cy[m * t] for m in range(d)])
 
-
+# TODO: fix this
 def decode_output_expanded(cy, d_in, d_out, N):
     """Extract up-projection result with alpha-interleaving."""
     alpha = d_out // d_in
@@ -207,8 +248,12 @@ def run_test(d_in, d_out, N, seed=42, test_mode="basis"):
     diff = y_out - y_exp
     bad = np.where(np.abs(diff) > 1e-10)[0]
     if len(bad) > 0:
-        for b in bad[:10]:
-            print(f"  WRONG y[{b}]: got {y_out[b]:.6f}, exp {y_exp[b]:.6f}, diff {diff[b]:.6f}")
+        print(f"  {len(bad)}/{len(y_out)} slots wrong:")
+        for b in bad[:20]:
+            print(f"    y[{b:3d}]: got {y_out[b]:+.6f}, exp {y_exp[b]:+.6f}, diff {diff[b]:+.6f}")
+        ok_slots = np.where(np.abs(diff) <= 1e-10)[0]
+        if len(ok_slots) <= 20:
+            print(f"  correct slots: {ok_slots.tolist()}")
     return err
 
 
@@ -242,13 +287,13 @@ def main():
     # print("\n--- DOWN  (d_in = 4·d_out) ---")
     # for d_out, N in [(16, 256)]:
     #     d_in = d_out * 4
-    #     n_pt, r_i, r_o, d, alpha, t, t_prime = bsgs_params(d_in, d_out, N)
-    #     err = run_test(d_in, d_out, N)
-    #     ok = err < 1e-10
-    #     print(f"  d_in={d_in:4d} d_out={d_out:5d} N={N:5d} t={t:2d} t'={t_prime:2d} "
-    #           f"n_pt={n_pt:3d} r_i={r_i:2d} r_o={r_o:2d}  "
-    #           f"err={err:.2e}  {'OK' if ok else 'FAIL'}")
-
+    #     for mode in ["randW_e0", "random"]:
+    #         n_pt, r_i, r_o, d, alpha, t, t_prime = bsgs_params(d_in, d_out, N)
+    #         err = run_test(d_in, d_out, N, test_mode=mode)
+    #         ok = err < 1e-10
+    #         print(f"  [{mode:6s}] d_in={d_in:4d} d_out={d_out:5d} N={N:5d} "
+    #               f"r_i={r_i:2d} r_o={r_o:2d}  "
+    #               f"err={err:.2e}  {'OK' if ok else 'FAIL'}")
 
 if __name__ == "__main__":
     main()
