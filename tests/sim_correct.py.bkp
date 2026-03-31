@@ -76,6 +76,7 @@ def easy():
     # here we are!
     def decode(ptx, N, d):
         return ptx[: d]
+    
     print(gt)
     print(decode(vmm(encode(x, N, d), encode_W(W, N, d), N, d), N, d))
         
@@ -121,11 +122,14 @@ def cachemir_test():
         return pt
 
     ptx = encode_x(x, N, d)
+    print(ptx)
     ptx_prime = ptx.copy()
     step = 1
     while step < t:
-        ptx_prime = ptx_prime + rot(ptx_prime, step * (t - 1))
+        ptx_prime = ptx_prime + rot(ptx_prime, step * (t - 1)) # d in algorithm 1 line 7
         step *= 2
+        
+    print(ptx_prime)
 
     pts_W = encode_W(W, N, d, r_i, r_o)
     cy_prime = np.zeros((r_o, N))

@@ -3,25 +3,6 @@
 #include "ckks_primitives.h"
 #include <cmath>
 
-// ---------------------------------------------------------------------------
-// Depth-budget regression tests
-//
-// Each test asserts the *theoretical optimal* multiplicative depth for the
-// primitive under test.  Depths are derived from a pencil-and-paper analysis
-// of the minimum number of sequential multiplications on the critical path,
-// NOT from observing the implementation.
-//
-// FLEXIBLEAUTO behaviour:  OpenFHE's FLEXIBLEAUTO rescaling mode defers the
-// last rescale until the next operation that needs it.  Because level_of()
-// reads the current tower index, the measured consumption can therefore be
-// one level *less* than the theoretical depth when the final rescale is still
-// pending.  Every EXPECT below therefore accepts:
-//
-//     consumed ∈ { kDepth − 1,  kDepth }
-//
-// where kDepth is the theoretical optimum.
-// ---------------------------------------------------------------------------
-
 static Ctx fresh_ct(const CC& cc, double val, const PublicKey<DCRTPoly>& pk) {
     size_t slots = cc->GetRingDimension() / 2;
     auto pt = encode(cc, std::vector<double>(slots, val));
