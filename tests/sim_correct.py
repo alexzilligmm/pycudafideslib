@@ -81,65 +81,76 @@ def easy():
         
     print(f"Error: {gt- decode(vmm(encode(x, N, d), encode_W(W, N, d), N, d), N, d)}")
     
-def cachemir():
-    # still square case
+
+def cachemir_test():
     N = 32
     d = 8
-    n_pt = d * d // N 
-    t = N // d
+    t = N // d        # = 4
+    n_pt = d * d // N # = 2
+    
+    def compute_r_i_r_o(N, d):
+        r_i = d * d // (2 * N)
+        r_o = d * d // (N * r_i)
+        return r_i, r_o
+    
+    r_i, r_o = compute_r_i_r_o(N, d)
+
     x = np.random.random(d)
     W = np.random.random((d, d))
-    
-    # cachemir encodes with holes and fills later during loop 1 i.e. Algorithm 1 line 6
-    def encode(x, N, d):
+
+    print(f"N={N}, d={d}, t={t}, r_i={r_i}, r_o={r_o}, n_pt={n_pt}")
+
+    def encode_x(x, N, d):
         t = N // d
         ptx = np.zeros(N)
         for i in range(N):
             if i % t == 0:
-                ptx[i] = x[int(i // t)]
+                ptx[i] = x[i // t]
         return ptx
-    
-    def valid_ri(N, d):
-        r_i = int(math.sqrt( d * d / (2 * N)))
-        r_o = d * d // (N * r_i)
-        return r_i, r_o
-    
-    def encode_W(W, N, d):
+
+    def encode_W(W, N, d, r_i, r_o):
         t = N // d
-        n_pt = d * d // N 
+        n_pt = r_i * r_o
         pt = np.zeros((n_pt, N))
-        r_i, r_o = valid_ri(N, d)
-        print(r_i, r_o)
         for j in range(r_i):
             for k in range(r_o):
                 for i in range(N):
-                    row = (i // t + i % t + j * t) % d
-                    col = (i // t - k * t * r_i)   % d
-                    pt[j * r_o + k, i] = W[row, col]
-        return pt, r_i, r_o
-    
-    ptx = encode(x, N, d)
-    ptx_W, r_i, r_o = encode_W(W, N, d)
-    
-    # popoulate holes first for of algorithm 1
+                    row = (i//t + i%t + j) % d
+                    col = (i//t - k*t)     % d
+                    pt[j*r_o+k, i] = W[row, col]
+        return pt
+
+    ptx = encode_x(x, N, d)
     ptx_prime = ptx.copy()
-    
     step = 1
     while step < t:
-        ptx_prime = ptx_prime + rot(ptx_prime, step * (t - 1)) # algo 1 is wrong it is ptx_prime instead of ptx
+        ptx_prime = ptx_prime + rot(ptx_prime, step * (t - 1))
         step *= 2
-    print(ptx_prime)
-    print(ptx_W)
 
-    
-    
-    
-    
-    
+    pts_W = encode_W(W, N, d, r_i, r_o)
+    cy_prime = np.zeros((r_o, N))
+    for k in range(r_o):
+        for j in range(r_i):
+            cx_rot = rot(ptx_prime, j * t)
+            cy_prime[k] += cx_rot * pts_W[j * r_o + k]
+
+    for k in range(r_o - 1, 0, -1):
+        cy_prime[k-1] += rot(cy_prime[k], t * t)
+    cy = cy_prime[0]
+
+    step = 1
+    while step < t:
+        cy = cy + rot(cy, step)
+        step *= 2
+
+    y_true = x @ W
+    y_fhe  = cy[::t][:d]
+    print(f"match: {np.allclose(y_fhe, y_true)}")
+    print(f"error: {np.max(np.abs(y_fhe - y_true)):.2e}")
     
 def main():
-    cachemir()
-
+    cachemir_test()
 
 if __name__ == "__main__":
     main()
+    
