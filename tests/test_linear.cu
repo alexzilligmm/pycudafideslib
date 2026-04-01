@@ -1,7 +1,3 @@
-// Correctness test for the CacheMIR linear layer.
-// Uses encode_weight_matrix / encode_linear_input / linear from the library.
-// Crypto config matches the paper: N'=2^16, N=2^15, L=13, K=15, h=192.
-
 #include "gpt2.h"
 #include <iostream>
 #include <random>
@@ -65,10 +61,6 @@ static bool run_test(const std::string& label, Inference& inf,
 }
 
 int main() {
-    // Match real-world crypto config (THOR / CacheMIR paper):
-    // N' = 2^16, N = 2^15 slots, L = 13, K = 15 (btp overhead),
-    // CtS depth 4, StC depth 3, sparse secret h = 192,
-    // q0 ≈ 53 bits, qi ≈ 41 bits for i >= 1
     const int logN  = 16;
     const int d     = 1024;
     const int d_exp = 4096;
