@@ -496,6 +496,33 @@ def cachemir_vmm(x, W, N):
     
     return decode_output(cy, N, t, tp, alpha, d, d_out, is_up)
 
+
+class VCache:
+    """Helper for building V cache ciphertexts from a value matrix."""
+    def __init__(self, N, d, V=None):
+        self.curr_values = 0
+        self.N = N
+        self.d = d
+        self.values = None
+        if V is not None:
+            self._build(V)
+
+    def _build(self, V):
+        n_v = V.shape[0]
+        n_metagroups = (n_v // self.N) + (n_v % self.N > 0)
+        self.values = []
+        for mg in range(n_metagroups):
+            metagroup = [np.zeros(self.N) for _ in range(self.d)]
+            start = mg * self.N
+            end = min(start + self.N, n_v)
+            for i in range(start, end):
+                for j in range(self.d):
+                    #metagroup[something][something] = V[i + start, j] Something
+                    raise NotImplementedError("VCache building not implemented yet")
+            self.values.append(metagroup)
+
+
+
 def main():
     ok = True
 
