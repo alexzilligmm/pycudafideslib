@@ -1,28 +1,10 @@
-#!/bin/bash
-#SBATCH --job-name install_deps
-#SBATCH -A IscrC_eff-SAM2
-#SBATCH --time 00:30:00
-#SBATCH --qos normal
-#SBATCH -p boost_usr_prod
-#SBATCH --mem=64G
-#SBATCH -N 1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
-#SBATCH --gres=gpu:1
-#SBATCH --error=logs/slurm/%j.err
-#SBATCH --output=logs/slurm/%j.out
-
-# Two-stage install:
-#   1. Build OpenFHE v1.4.2 (with FIDESlib's patch) → $DEPS
-#   2. Build FIDESlib against that OpenFHE → $DEPS
-#
-# Run from: pycudafhe/
-# Submit:   sbatch scripts/01_install_deps.sh
-
 set -e
 echo "=== Installing OpenFHE + FIDESlib ==="
 echo "Host: $(hostname)  |  Date: $(date)"
 
+# ── Proxy ──────────────────────────────────────────────────────────────────
+
+export OMP_NUM_THREADS=16
 
 # ── Paths ─────────────────────────────────────────────────────────────────
 REPO="$(pwd)"
@@ -35,17 +17,6 @@ OPENFHE_TMP=/tmp/openfhe_build_$$
 mkdir -p "$DEPS"
 
 # ── Modules ───────────────────────────────────────────────────────────────
-if command -v module &>/dev/null; then
-    module load cmake/3.27.9 cuda/12.6 gcc/12.2.0
-    export http_proxy='http://login01:3140'
-    export https_proxy='http://login01:3140'
-    export OMP_NUM_THREADS=16
-else
-    echo "module command not found, using system tools:"
-    cmake --version | head -1 || echo "cmake: not found"
-    nvcc --version 2>/dev/null | head -1 || echo "nvcc: not found"
-    gcc --version | head -1 || echo "gcc: not found"
-fi
 # first check if module is available as a command
 # if cuda_home is not set, try setting it like so
 if [ -z "$CUDA_HOME" ] &>/dev/null; then
@@ -61,25 +32,6 @@ echo "CUDAHOSTCXX: $CUDAHOSTCXX"
 cmake --version | head -1
 g++ --version | head -1
 
-# ── NCCL via miniconda ──────────────────────────────────────────────────────
-# nvidia-nccl-cu12 is installed in the user's miniconda (Python 3.13).
-# Use that python explicitly — the build doesn't need any other python module.
-_CONDA_PYTHON="$HOME/miniconda3/bin/python3"
-
-if [ ! -x "$_CONDA_PYTHON" ]; then
-    echo "ERROR: $_CONDA_PYTHON not found. Install nvidia-nccl-cu12 via:"
-    echo "  ~/miniconda3/bin/pip install nvidia-nccl-cu12"
-    exit 1
-fi
-
-_nccl_pip_dir="$($_CONDA_PYTHON -c "
-import importlib.util
-spec = importlib.util.find_spec('nvidia.nccl')
-if spec and spec.submodule_search_locations:
-    print(list(spec.submodule_search_locations)[0])
-" 2>/dev/null || true)"
-echo "miniconda NCCL dir: '${_nccl_pip_dir}'"
-
 # ── NCCL preflight ─────────────────────────────────────────────────────────
 _nccl_lib=""
 _nccl_inc=""
@@ -94,7 +46,6 @@ if [ -n "$NCCL_HOME" ]; then
 fi
 
 for d in \
-    ${_nccl_pip_dir:+"$_nccl_pip_dir/lib"} \
     "$CUDA_HOME/lib64" \
     "$CUDA_HOME/targets/x86_64-linux/lib" \
     /usr/lib/x86_64-linux-gnu \
@@ -107,7 +58,6 @@ do
 done
 
 for d in \
-    ${_nccl_pip_dir:+"$_nccl_pip_dir/include"} \
     "$CUDA_HOME/include" \
     "$CUDA_HOME/targets/x86_64-linux/include" \
     /usr/include \

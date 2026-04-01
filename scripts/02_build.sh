@@ -1,26 +1,4 @@
-#!/bin/bash
-#SBATCH --job-name build_cachemir
-#SBATCH -A IscrC_eff-SAM2
-#SBATCH --time 00:30:00
-#SBATCH --qos normal
-#SBATCH -p boost_usr_prod
-#SBATCH --mem=32G
-#SBATCH -N 1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
-#SBATCH --gres=gpu:1
-#SBATCH --error=logs/slurm/%j.err
-#SBATCH --output=logs/slurm/%j.out
-
-# Build cuda_cachemir + all tests against the pre-installed FIDESlib.
-#
-# Run from: cuda-backend/
-# Submit:   sbatch scripts/02_build.sh
-# Or with dependency on install job:
-#   JID=$(sbatch --parsable scripts/01_install_deps.sh)
-#   sbatch --dependency=afterok:$JID scripts/02_build.sh
-
-set -e
+et -e
 echo "=== Building cuda_cachemir ==="
 echo "Host: $(hostname)  |  Date: $(date)"
 
@@ -31,18 +9,7 @@ REPO="$(pwd)"
 DEPS="$REPO/deps"
 BUILD_DIR="$REPO/build"
 
-export http_proxy='http://login02:3140'
-export https_proxy='http://login02:3140'
-
 # ── Modules ──────────────────────────────────────────────────────────────
-if command -v module &>/dev/null; then
-    module load cmake/3.27.9 cuda/12.6 gcc/12.2.0
-else
-    echo "module command not found, using system tools:"
-    cmake --version | head -1 || echo "cmake: not found"
-    nvcc --version 2>/dev/null | head -1 || echo "nvcc: not found"
-    gcc --version | head -1 || echo "gcc: not found"
-fi
 if [ -z "$CUDA_HOME" ] &>/dev/null; then
     export CUDA_HOME="/usr/local/cuda-12.6"
 fi
@@ -55,27 +22,6 @@ echo "CUDA_NVCC:   $CUDA_NVCC"
 echo "CUDAHOSTCXX: $CUDAHOSTCXX"
 cmake --version | head -1
 g++ --version | head -1
-
-# ── NCCL install (pip) ─────────────────────────────────────────────────────
-# Activate the project venv so pip/python resolve nvidia-nccl-cu12
-if [ -f "$REPO/.venv/bin/activate" ]; then
-    source "$REPO/.venv/bin/activate"
-fi
-pip install --quiet nvidia-nccl-cu12 2>/dev/null || true
-
-_nccl_pip_dir="$(python3 -c "
-import importlib.util, sys
-# Also check miniconda site-packages as fallback
-for p in [
-    '$HOME/miniconda3/lib/python3.13/site-packages',
-    '$HOME/miniconda3/lib/python3.11/site-packages',
-]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
-spec = importlib.util.find_spec('nvidia.nccl')
-if spec and spec.submodule_search_locations:
-    print(list(spec.submodule_search_locations)[0])
-" 2>/dev/null || true)"
 
 # ── NCCL preflight ─────────────────────────────────────────────────────────
 _nccl_lib=""
@@ -91,7 +37,6 @@ if [ -n "$NCCL_HOME" ]; then
 fi
 
 for d in \
-    ${_nccl_pip_dir:+"$_nccl_pip_dir/lib"} \
     "$CUDA_HOME/lib64" \
     "$CUDA_HOME/targets/x86_64-linux/lib" \
     /usr/lib/x86_64-linux-gnu \
@@ -104,7 +49,6 @@ do
 done
 
 for d in \
-    ${_nccl_pip_dir:+"$_nccl_pip_dir/include"} \
     "$CUDA_HOME/include" \
     "$CUDA_HOME/targets/x86_64-linux/include" \
     /usr/include \

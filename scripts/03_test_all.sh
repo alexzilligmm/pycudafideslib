@@ -1,72 +1,49 @@
-#!/bin/bash
-#SBATCH --job-name run_tests
-#SBATCH -A IscrC_eff-SAM2
-#SBATCH --time 02:00:00
-#SBATCH --qos normal
-#SBATCH -p boost_usr_prod
-#SBATCH --mem=128G
-#SBATCH -N 1
-#SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:1
-#SBATCH --error=logs/slurm/%j.err
-#SBATCH --output=logs/slurm/%j.out
-
-# Build + run all test binaries individually (not via ctest) so each runs
-# even if a previous one crashes at teardown (heap corruption).
-#
-# Submit:   sbatch scripts/07_test_all.sh
-
-echo "=== Build + run cuda_cachemir tests ==="
+set -e
+echo "=== Running cuda_cachemir tests ==="
 echo "Host: $(hostname)  |  Date: $(date)"
 
+# ── Paths ────────────────────────────────────────────────────────────────
 REPO="$(pwd)"
 DEPS="$REPO/deps"
 BUILD_DIR="$REPO/build"
-BIN="$BUILD_DIR/bin"
 
-module load cuda/12.6 gcc cmake
-export CUDA_HOME=$(dirname "$(dirname "$(which nvcc)")")
-export LD_LIBRARY_PATH="$DEPS/lib:$DEPS/lib64:${LD_LIBRARY_PATH:-}"
-export OMP_NUM_THREADS=1
+# ── Modules ──────────────────────────────────────────────────────────────
+export CUDA_HOME="/usr/local/cuda-12.6"
 
-# --- Build ---
-echo ""
-echo "--- Building ---"
-cmake --build "$BUILD_DIR" -j$(nproc) 2>&1 | tail -20
-BUILD_RC=$?
-if [ $BUILD_RC -ne 0 ]; then
-    echo "ERROR: Build failed (exit $BUILD_RC)"
+# ── Sanitize environment (remove Conda libstdc++ conflicts) ─────────────────
+# Unset Conda variables that may inject older compiler stubs
+# Remove /opt/miniconda3 from PATH to force system compilers/libraries
+export PATH="/usr/local/cuda-12.6/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Ensure system libraries are prioritized (e.g., system libstdc++.so.6 with newer GLIBCXX symbols)
+if [ -d "/usr/lib/x86_64-linux-gnu" ]; then
+    export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
+fi
+
+# ── Verify build exists ───────────────────────────────────────────────────
+if [ ! -d "$BUILD_DIR" ]; then
+    echo "ERROR: Build directory $BUILD_DIR not found."
+    echo "Run 02_build.sh first."
     exit 1
 fi
-echo "Build OK"
 
-# --- Run tests ---
+# Export shared-library path so FIDESlib/OpenFHE .so files are found
+export LD_LIBRARY_PATH="$DEPS/lib:$DEPS/lib64:${LD_LIBRARY_PATH:-}"
+
+# ── List available test binaries ──────────────────────────────────────────
 echo ""
 echo "--- Test binaries ---"
-ls -lh "$BIN/"test_* 2>/dev/null || echo "(none found)"
+ls -lh "$BUILD_DIR/bin/"test_* 2>/dev/null || echo "(no test_* binaries found in bin/)"
 
-PASS=0
-FAIL=0
-for t in "$BIN"/test_*; do
-    name=$(basename "$t")
-    echo ""
-    echo "=========================================="
-    echo "  $name"
-    echo "=========================================="
-    "$t" 2>&1
-    rc=$?
-    if [ $rc -eq 0 ]; then
-        echo "  → $name: PASS"
-        ((PASS++))
-    else
-        echo "  → $name: EXIT $rc"
-        ((FAIL++))
-    fi
-done
+# ── ctest (runs all registered tests) ────────────────────────────────────
+echo ""
+echo "--- ctest (verbose) ---"
+ctest --test-dir "$BUILD_DIR" -V --output-on-failure 2>&1
+
+# ── Quick smoke-test of the main binary ───────────────────────────────────
+echo ""
+echo "--- Smoke: cuda_cachemir -test Ops -logN 12 ---"
+"$BUILD_DIR/bin/cuda_cachemir" -test Ops -logN 12 2>&1
 
 echo ""
-echo "=========================================="
-echo "  SUMMARY: $PASS passed, $FAIL failed"
-echo "=========================================="
+echo "=== All tests complete ==="
 echo "Date: $(date)"
