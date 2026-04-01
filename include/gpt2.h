@@ -3,8 +3,19 @@
 #include "inference.h"
 #include "nonlinear.h"
 
-Ctx linear_interleaved(Inference& inf, const Ctx& x,
-                       const std::string& wname, int d_in, int d_out);
+struct CacheMirParams {
+    bool is_up;
+    int d, alpha, t, tp, tp_in, tp_out, r_i, r_o, n_pt;
+};
+
+CacheMirParams compute_cm_params(int N, int d_in, int d_out);
+std::vector<double> load_matrix_txt(const std::string& path, int d_in, int d_out);
+Ctx encode_linear_input(Inference& inf, const std::vector<double>& x, int d_in, int d_out);
+std::vector<Ptx> encode_weight_matrix(Inference& inf, const std::vector<double>& vals, int d_in, int d_out);
+std::vector<Ptx> load_weight_txt(Inference& inf, const std::string& path, int d_in, int d_out);
+
+Ctx linear(Inference& inf, const Ctx& x,
+           const std::string& wname, int d_in, int d_out);
 
 Ctx qkv_q(Inference& inf, const Ctx& x);
 Ctx qkv_k(Inference& inf, const Ctx& x);
@@ -62,6 +73,8 @@ inline NormConfig make_norm_encllm_gpt2(double taylor_rescale) {
     c.taylor_rescale = taylor_rescale;
     return c;
 }
+
+int interleave_idx(int m, int d, int dim);
 
 std::vector<int32_t> compute_gpt2_rot_indices(
     int S, int hidDim, int ffDim, int numHeads, int seqLen);

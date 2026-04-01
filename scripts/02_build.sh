@@ -35,7 +35,14 @@ export http_proxy='http://login02:3140'
 export https_proxy='http://login02:3140'
 
 # ── Modules ──────────────────────────────────────────────────────────────
-module load cmake/3.27.9 cuda/12.6 gcc/12.2.0
+if command -v module &>/dev/null; then
+    module load cmake/3.27.9 cuda/12.6 gcc/12.2.0
+else
+    echo "module command not found, using system tools:"
+    cmake --version | head -1 || echo "cmake: not found"
+    nvcc --version 2>/dev/null | head -1 || echo "nvcc: not found"
+    gcc --version | head -1 || echo "gcc: not found"
+fi
 if [ -z "$CUDA_HOME" ] &>/dev/null; then
     export CUDA_HOME="/usr/local/cuda-12.6"
 fi

@@ -73,6 +73,7 @@ add_library(cachemir_lib STATIC
     src/bootstrap.cu
     src/primitives.cu
     src/poly_eval.cu
+    src/linear_utils.cu
     src/linear.cu
     src/nonlinear.cu
     src/gpt2.cu

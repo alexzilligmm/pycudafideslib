@@ -18,53 +18,39 @@ void rotate_add_inplace(Inference& inf, Ctx& x, int step) {
 Ctx linear(Inference& inf, const Ctx& x_in,
                        const std::string& wname, int d_in, int d_out) {
     const CC& cc = inf.cc();
-    int N = inf.slots;
+    auto p = compute_cm_params(inf.slots, d_in, d_out);
 
-    bool is_up = (d_in <= d_out);
-    int d     = is_up ? d_in : d_out;
-    int alpha = std::max(d_in, d_out) / d;
-
-    int t      = N / d;
-    int tp     = N / (alpha * d);
-    int tp_in  = is_up ? t  : tp;
-    int tp_out = is_up ? tp : t;
-    int d_in_  = is_up ? d  : alpha * d;
-    int n_pt   = d_in_ / tp_out;
-    int r_i    = std::max(1, d * d / N);
-    r_i        = std::min(r_i, n_pt);
-    int r_o    = n_pt / r_i;
-
-    const auto& pts_W = inf.w.at(wname);
+    auto pts_W = inf.w.at(wname);
 
     Ctx x = x_in;
-    for (int step = 1; step < tp_in; step *= 2) {
-        Ctx tmp = cc->EvalRotate(x, rot(inf, step * (t - 1)));
+    for (int step = 1; step < p.tp_in; step *= 2) {
+        Ctx tmp = cc->EvalRotate(x, rot(inf, step * (p.t - 1)));
         cc->EvalAddInPlace(x, tmp);
     }
 
-    int rot2 = t * t;
-    std::vector<Ctx> x_rotated(r_i);
+    int rot2 = p.t * p.t;
+    std::vector<Ctx> x_rotated(p.r_i);
     x_rotated[0] = x;
-    for (int j = 1; j < r_i; ++j)
+    for (int j = 1; j < p.r_i; ++j)
         x_rotated[j] = cc->EvalRotate(x, rot(inf, j * rot2));
 
-    std::vector<Ctx> cy(r_o);
-    for (int k = 0; k < r_o; ++k) {
+    std::vector<Ctx> cy(p.r_o);
+    for (int k = 0; k < p.r_o; ++k) {
         cy[k] = cc->EvalMult(x_rotated[0], pts_W[k]);
-        for (int j = 1; j < r_i; ++j) {
-            Ctx tmp = cc->EvalMult(x_rotated[j], pts_W[j * r_o + k]);
+        for (int j = 1; j < p.r_i; ++j) {
+            Ctx tmp = cc->EvalMult(x_rotated[j], pts_W[j * p.r_o + k]);
             cc->EvalAddInPlace(cy[k], tmp);
         }
     }
 
-    int cascade_rot = t * tp;
-    for (int k = r_o - 1; k > 0; --k) {
+    int cascade_rot = p.t * p.tp;
+    for (int k = p.r_o - 1; k > 0; --k) {
         Ctx tmp = cc->EvalRotate(cy[k], rot(inf, cascade_rot));
         cc->EvalAddInPlace(cy[k - 1], tmp);
     }
 
     Ctx y = cy[0];
-    for (int step = 1; step < tp_out; step *= 2)
+    for (int step = 1; step < p.tp_out; step *= 2)
         rotate_add_inplace(inf, y, step);
 
     return y;

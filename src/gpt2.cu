@@ -13,6 +13,40 @@
 
 
 
+static void collect_linear_rots(std::set<int32_t>& rots, int N, int d_in, int d_out) {
+    auto p = compute_cm_params(N, d_in, d_out);
+
+    // Input accumulation: step * (t - 1), step = 1,2,4,... while step < tp_in
+    for (int step = 1; step < p.tp_in; step *= 2)
+        rots.insert(step * (p.t - 1));
+
+    // Input rotation: j * t^2, j = 1..r_i-1
+    int rot2 = p.t * p.t;
+    for (int j = 1; j < p.r_i; ++j)
+        rots.insert(j * rot2);
+
+    // Cascade rotation: t * tp
+    rots.insert(p.t * p.tp);
+
+    // Output accumulation: step = 1,2,4,... while step < tp_out
+    for (int step = 1; step < p.tp_out; step *= 2)
+        rots.insert(step);
+}
+
+std::vector<int32_t> compute_gpt2_rot_indices(
+    int S, int hidDim, int ffDim, int numHeads, int seqLen) {
+    std::set<int32_t> rots;
+
+    // q/k/v/out: hidDim x hidDim
+    collect_linear_rots(rots, S, hidDim, hidDim);
+    // up/gate: hidDim x ffDim
+    collect_linear_rots(rots, S, hidDim, ffDim);
+    // down: ffDim x hidDim
+    collect_linear_rots(rots, S, ffDim, hidDim);
+
+    return std::vector<int32_t>(rots.begin(), rots.end());
+}
+
 Inference make_gpt2(int logN, int hidDim, int ffDim,
                     int seqLen, int numHeads, bool parallel,
                     bool bench) {
@@ -33,9 +67,8 @@ Inference make_gpt2(int logN, int hidDim, int ffDim,
 
     int btp_sbits = kGPT2BtpScaleBits;
     int first_mod = kGPT2FirstModBits;
-    
-    /// TODO: restore this function
-    /// auto extra_rots = compute_gpt2_rot_indices(S, hidDim, ffDim, numHeads, seqLen);
+
+    auto extra_rots = compute_gpt2_rot_indices(S, hidDim, ffDim, numHeads, seqLen);
     std::cout << "  Extra rotation indices: " << extra_rots.size() << "\n";
 
     inf.fhe         = make_ckks_context(logN, kDepth, /*scale_bits=*/41,
@@ -66,6 +99,25 @@ Ptx gpt2_rand_plaintext(Inference& inf) {
     return inf.cc()->MakeCKKSPackedPlaintext(msg);
 }
 
+
+
+void gpt2_prepare_weights(Inference& inf, const std::vector<std::string>& names) {
+    const int hidDim = inf.size.hidDim;
+    const int expDim = inf.size.expDim;
+
+    for (const auto& n : names) {
+        int d_in, d_out;
+        if      (n == "q" || n == "k" || n == "v" || n == "out") { d_in = hidDim; d_out = hidDim; }
+        else if (n == "up" || n == "gate")                        { d_in = hidDim; d_out = expDim; }
+        else if (n == "down")                                     { d_in = expDim; d_out = hidDim; }
+        else throw std::runtime_error("Unknown GPT-2 weight: " + n);
+
+        std::string path = inf.weight_dir + "/" + n + ".txt";
+        std::cout << "Loading " << n << " (" << d_in << "x" << d_out << ") from " << path << "\n";
+        inf.w[n] = load_weight_txt(inf, path, d_in, d_out);
+    }
+    std::cout << "GPT-2 weights loaded." << std::endl;
+}
 
 void gpt2_generate_random_weights(Inference& inf, const std::vector<std::string>& names) {
     std::cout << "Preparing GPT-2 weights (interleaved)..." << std::endl;

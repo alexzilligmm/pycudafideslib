@@ -23,12 +23,6 @@ set -e
 echo "=== Installing OpenFHE + FIDESlib ==="
 echo "Host: $(hostname)  |  Date: $(date)"
 
-export http_proxy='http://login01:3140'
-export https_proxy='http://login01:3140'
-
-# ── Proxy ──────────────────────────────────────────────────────────────────
-
-export OMP_NUM_THREADS=16
 
 # ── Paths ─────────────────────────────────────────────────────────────────
 REPO="$(pwd)"
@@ -41,7 +35,17 @@ OPENFHE_TMP=/tmp/openfhe_build_$$
 mkdir -p "$DEPS"
 
 # ── Modules ───────────────────────────────────────────────────────────────
-module load cmake/3.27.9 cuda/12.6 gcc/12.2.0
+if command -v module &>/dev/null; then
+    module load cmake/3.27.9 cuda/12.6 gcc/12.2.0
+    export http_proxy='http://login01:3140'
+    export https_proxy='http://login01:3140'
+    export OMP_NUM_THREADS=16
+else
+    echo "module command not found, using system tools:"
+    cmake --version | head -1 || echo "cmake: not found"
+    nvcc --version 2>/dev/null | head -1 || echo "nvcc: not found"
+    gcc --version | head -1 || echo "gcc: not found"
+fi
 # first check if module is available as a command
 # if cuda_home is not set, try setting it like so
 if [ -z "$CUDA_HOME" ] &>/dev/null; then
