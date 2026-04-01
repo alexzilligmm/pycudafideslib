@@ -15,90 +15,69 @@ void rotate_add_inplace(Inference& inf, Ctx& x, int step) {
     cc->EvalAddInPlace(x, tmp);
 }
 
-//   expand == 0  ↔  d_in == d_out  (QKV, Out)
-//   expand == 1  ↔  d_in < d_out   (Up, Gate)
-//   expand == -1 ↔  d_in > d_out   (Down)
-Ctx linear_interleaved(Inference& inf, const Ctx& x_in,
+Ctx linear(Inference& inf, const Ctx& x_in,
                        const std::string& wname, int d_in, int d_out) {
     const CC& cc = inf.cc();
-    int numSlots = inf.slots;
-    int hidDim   = inf.size.hidDim;
-    int expDim   = inf.size.expDim;
+    int N = inf.slots;
 
-    int expand = (d_in > d_out) ? -1 : (d_in < d_out) ? 1 : 0;
-    int preProc, postProc, inRot, outRot;
-    int intRot = numSlots / std::max(d_in, d_out);
+    bool is_up = (d_in <= d_out);
+    int d     = is_up ? d_in : d_out;
+    int alpha = std::max(d_in, d_out) / d;
 
+    int t      = N / d;
+    int tp     = N / (alpha * d);
+    int tp_in  = is_up ? t  : tp;
+    int tp_out = is_up ? tp : t;
+    int d_in_  = is_up ? d  : alpha * d;
+    int n_pt   = d_in_ / tp_out;
+    int r_i    = std::max(1, d * d / N);
+    r_i        = std::min(r_i, n_pt);
+    int r_o    = n_pt / r_i;
 
-    if (expand >= 0) {
-        preProc = numSlots / hidDim;
-    } else {
-        preProc = numSlots / expDim;
-    }
-    if (expand <= 0) {
-        postProc = numSlots / hidDim;
-    } else {
-        postProc = numSlots / expDim;
-    }
+    const auto& pts_W = inf.w.at(wname);
 
-    if (expand == 0) {
-        inRot  = (int)std::sqrt((double)(hidDim * hidDim / (2 * numSlots)));
-        outRot = hidDim * hidDim / (numSlots * inRot);
-    } else {
-        inRot  = (int)std::sqrt((double)(hidDim * expDim / (2 * numSlots)));
-        outRot = hidDim * expDim / (numSlots * inRot);
-    }
-
-    int d_pre = (expand >= 0) ? hidDim : expDim;
-
-    auto& weight = inf.w.at(wname);
-    std::vector<Ctx> ctRot(inRot);
-    std::vector<Ctx> partSum(weight.size());
-
-    Ctx x = x_in->Clone();
-    for (int i = 1; i < preProc; i *= 2) {
-        Ctx tmp = cc->EvalRotate(x, rot(inf, i * (d_pre - 1)));
+    Ctx x = x_in;
+    for (int step = 1; step < tp_in; step *= 2) {
+        Ctx tmp = cc->EvalRotate(x, rot(inf, step * (t - 1)));
         cc->EvalAddInPlace(x, tmp);
     }
 
-    ctRot[0] = x;
-    for (int i = 1; i < inRot; ++i) {
-        ctRot[i] = cc->EvalRotate(x, rot(inf, i * intRot));
-    }
+    int rot2 = t * t;
+    std::vector<Ctx> x_rotated(r_i);
+    x_rotated[0] = x;
+    for (int j = 1; j < r_i; ++j)
+        x_rotated[j] = cc->EvalRotate(x, rot(inf, j * rot2));
 
-    for (int i = 0; i < (int)weight.size(); ++i) {
-        partSum[i] = cc->EvalMult(ctRot[i % inRot], weight[i]);
-        if (i % inRot > 0) {
-            cc->EvalAddInPlace(partSum[i - i % inRot], partSum[i]);
+    std::vector<Ctx> cy(r_o);
+    for (int k = 0; k < r_o; ++k) {
+        cy[k] = cc->EvalMult(x_rotated[0], pts_W[k]);
+        for (int j = 1; j < r_i; ++j) {
+            Ctx tmp = cc->EvalMult(x_rotated[j], pts_W[j * r_o + k]);
+            cc->EvalAddInPlace(cy[k], tmp);
         }
     }
 
-    for (int i = 1; i < outRot; ++i) {
-        partSum[i * inRot] = cc->EvalRotate(
-            partSum[i * inRot],
-            rot(inf, i * intRot * inRot));
+    int cascade_rot = t * tp;
+    for (int k = r_o - 1; k > 0; --k) {
+        Ctx tmp = cc->EvalRotate(cy[k], rot(inf, cascade_rot));
+        cc->EvalAddInPlace(cy[k - 1], tmp);
     }
 
-    for (int i = 1; i < outRot; ++i) {
-        cc->EvalAddInPlace(partSum[0], partSum[i * inRot]);
-    }
+    Ctx y = cy[0];
+    for (int step = 1; step < tp_out; step *= 2)
+        rotate_add_inplace(inf, y, step);
 
-    for (int i = 1; i < postProc; i *= 2) {
-        Ctx tmp = cc->EvalRotate(partSum[0], rot(inf, i));
-        cc->EvalAddInPlace(partSum[0], tmp);
-    }
-
-    return partSum[0];
+    return y;
 }
 
 Ctx qkv_q(Inference& inf, const Ctx& x) {
-    return linear_interleaved(inf, x, "q", inf.size.hidDim, inf.size.hidDim);
+    return linear(inf, x, "q", inf.size.hidDim, inf.size.hidDim);
 }
 Ctx qkv_k(Inference& inf, const Ctx& x) {
-    return linear_interleaved(inf, x, "k", inf.size.hidDim, inf.size.hidDim);
+    return linear(inf, x, "k", inf.size.hidDim, inf.size.hidDim);
 }
 Ctx qkv_v(Inference& inf, const Ctx& x) {
-    return linear_interleaved(inf, x, "v", inf.size.hidDim, inf.size.hidDim);
+    return linear(inf, x, "v", inf.size.hidDim, inf.size.hidDim);
 }
 
 static Ctx rope_single(Inference& inf, const Ctx& x) {
@@ -237,15 +216,15 @@ Ctx attn_v(Inference& inf, const Ctx& s) {
 }
 
 Ctx out_proj(Inference& inf, const Ctx& x) {
-    return linear_interleaved(inf, x, "out", inf.size.hidDim, inf.size.hidDim);
+    return linear(inf, x, "out", inf.size.hidDim, inf.size.hidDim);
 }
 
 std::pair<Ctx, Ctx> up_gate(Inference& inf, const Ctx& x) {
-    Ctx up   = linear_interleaved(inf, x, "up", inf.size.hidDim, inf.size.expDim);
-    Ctx gate = linear_interleaved(inf, x, "gate", inf.size.hidDim, inf.size.expDim);
+    Ctx up   = linear(inf, x, "up", inf.size.hidDim, inf.size.expDim);
+    Ctx gate = linear(inf, x, "gate", inf.size.hidDim, inf.size.expDim);
     return {up, gate};
 }
 
 Ctx down_proj(Inference& inf, const Ctx& x) {
-    return linear_interleaved(inf, x, "down", inf.size.expDim, inf.size.hidDim);
+    return linear(inf, x, "down", inf.size.expDim, inf.size.hidDim);
 }

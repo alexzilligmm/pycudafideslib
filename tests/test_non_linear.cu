@@ -122,22 +122,17 @@ TEST_F(NonLinearTest, GeLUApproxWithBts) {
     }
 }
 
-/// TODO: should use norm function from non linear
 TEST_F(NonLinearTest, NormApprox) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
     const int hD = inf.size.hidDim;          // 1024 (padded)
     const int intRot = S / hD;               // 32 at logN=16
 
-    // No-padding scenario: all hidDim positions are real values.
-    // Restore realHidDim after test (NormApproxWithPadding resets it anyway).
     inf.size.dim = hD;
 
-    // 5 distinct values cycling across hidDim; variance ≈ 0.02.
     const double raw[]   = { 0.1, 0.2, 0.3, 0.4, 0.5 };
     constexpr int nRaw   = 5;
 
-    // Compute ground truth from the actual 768 values.
     double sum = 0.0;
     for (int h = 0; h < hD; ++h) sum += raw[h % nRaw];
     double true_mean = sum / hD;
@@ -153,8 +148,6 @@ TEST_F(NonLinearTest, NormApprox) {
     double expect[nRaw];
     for (int j = 0; j < nRaw; ++j) expect[j] = (raw[j] - true_mean) / true_std;
 
-    // Interleaved layout: slot[h*intRot + t] = raw[h % 5].
-    // Garbage slots get arbitrary values — norm() masks them internally.
     std::vector<double> msg(S);
     for (int h = 0; h < hD; ++h)
         for (int t = 0; t < intRot; ++t)
@@ -171,7 +164,6 @@ TEST_F(NonLinearTest, NormApprox) {
 
     auto res = decrypt(cc, out, inf.fhe->sk());
 
-    // Check first 5 hidden-dim positions (stride = intRot) for token 0.
     for (int j = 0; j < nRaw; ++j) {
         double got = res[j * intRot];
         std::cout << "  norm(raw[" << j << "]=" << raw[j] << ") = "
@@ -180,12 +172,10 @@ TEST_F(NonLinearTest, NormApprox) {
     }
 }
 
-/// TODO: shall use norm function from non linear :) 
 TEST_F(NonLinearTest, NormApproxWithPadding) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;             // 32768
 
-    // Fixture already sets padded hD=1024, real=768, but be explicit
     const int paddedHD = 1024;
     const int realHD   = 768;
     inf.size.hidDim    = paddedHD;
@@ -193,11 +183,9 @@ TEST_F(NonLinearTest, NormApproxWithPadding) {
 
     const int intRot = S / paddedHD;      // 32
 
-    // Build input: 768 real values, 256 zeros (padding).
     const double raw[] = { 0.1, 0.2, 0.3, 0.4, 0.5 };
     constexpr int nRaw = 5;
 
-    // Ground truth uses only the 768 real values.
     double sum = 0.0;
     for (int h = 0; h < realHD; ++h) sum += raw[h % nRaw];
     double true_mean = sum / realHD;
@@ -213,13 +201,10 @@ TEST_F(NonLinearTest, NormApproxWithPadding) {
     double expect[nRaw];
     for (int j = 0; j < nRaw; ++j) expect[j] = (raw[j] - true_mean) / true_std;
 
-    // Pack slots: intRot-spaced, padded positions (768-1023) are zero.
     std::vector<double> msg(S, 0.0);
     for (int h = 0; h < realHD; ++h)
         for (int t = 0; t < intRot; ++t)
             msg[h * intRot + t] = raw[h % nRaw];
-    // Positions 768*2 .. 1024*2-1 stay 0.0 (padding)
-    // Positions 1024*2 .. 2047 stay 0.0 (beyond hD block)
 
     auto pt = cc->MakeCKKSPackedPlaintext(msg);
     auto ct = cc->Encrypt(inf.fhe->pk(), pt);
@@ -234,7 +219,6 @@ TEST_F(NonLinearTest, NormApproxWithPadding) {
 
     auto res = decrypt(cc, out, inf.fhe->sk());
 
-    // Check first 5 real hidden-dim positions.
     double max_err = 0.0;
     for (int j = 0; j < nRaw; ++j) {
         double got = res[j * intRot];
@@ -246,7 +230,6 @@ TEST_F(NonLinearTest, NormApproxWithPadding) {
         EXPECT_NEAR(got, expect[j], 0.2);
     }
 
-    // Also check that padded positions are near zero (or at least not polluted).
     double pad_val = res[realHD * intRot];
     std::cout << "  padded position [" << realHD << "] = " << pad_val << "\n";
     std::cout << "  max_err across real positions = " << max_err << "\n";

@@ -63,26 +63,6 @@ inline NormConfig make_norm_encllm_gpt2(double taylor_rescale) {
     return c;
 }
 
-inline GPT2ModelConfig make_gpt2_profiled_config() {
-    static const double rescales[12] = {
-        0.19271061, 0.01123577, 0.00085924, 0.00005702,
-        0.00004874, 0.00004363, 0.00004080, 0.00003925,
-        0.00003833, 0.00003779, 0.00003752, 0.00003747,
-    };
-
-    GPT2ModelConfig cfg;
-    cfg.num_layers = 12;
-    cfg.layers.resize(12);
-    for (int i = 0; i < 12; ++i) {
-        cfg.layers[i].norm1_cfg = make_norm_encllm_gpt2(rescales[i]);
-        cfg.layers[i].norm2_cfg = make_norm_encllm_gpt2(rescales[i]);
-    }
-    cfg.final_norm_cfg = make_norm_encllm_gpt2(rescales[11]);
-    return cfg;
-}
-
-inline const GPT2ModelConfig GPT2_PROFILED_CONFIG = make_gpt2_profiled_config();
-
 std::vector<int32_t> compute_gpt2_rot_indices(
     int S, int hidDim, int ffDim, int numHeads, int seqLen);
 
@@ -91,11 +71,7 @@ Inference make_gpt2(int logN, int hidDim, int ffDim,
                     bool bench = true);
 
 void gpt2_prepare_weights(Inference& inf, const std::vector<std::string>& names);
-void gpt2_prepare_cache  (Inference& inf, const std::vector<std::string>& names);
 
-void gpt2_load_weights(Inference& inf, const std::string& weight_dir, int num_layers = 12);
 
-Ctx gpt2_decoder(Inference& inf, const Ctx& x, const GPT2LayerConfig& cfg = {},
-                 int layer_idx = -1);
-Ctx gpt2_model  (Inference& inf, const Ctx& x, const GPT2ModelConfig& cfg = GPT2_DEFAULT_CONFIG);
+
 
