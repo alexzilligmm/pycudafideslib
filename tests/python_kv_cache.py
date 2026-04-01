@@ -499,29 +499,60 @@ def cachemir_vmm(x, W, N):
 
 class VCache:
     """Helper for building V cache ciphertexts from a value matrix."""
-    def __init__(self, N, d, V=None):
+    def __init__(self, N, d, V=None, H=1):
+        assert H==1, "Multi-head V cache not implemented yet"
         self.curr_values = 0
         self.N = N
         self.d = d
+        self.H = H
         self.values = None
         if V is not None:
             self._build(V)
 
     def _build(self, V):
-        n_v = V.shape[0]
-        n_metagroups = (n_v // self.N) + (n_v % self.N > 0)
+        self.curr_values = V.shape[0]
+        n_metagroups = (self.curr_values // self.N) + (self.curr_values % self.N > 0)
         self.values = []
         for mg in range(n_metagroups):
             metagroup = [np.zeros(self.N) for _ in range(self.d)]
             start = mg * self.N
-            end = min(start + self.N, n_v)
+            end = min(start + self.N, self.curr_values)
             for i in range(start, end):
+                mg_i = i - start
+                curr_i = mg_i // 2
                 for j in range(self.d):
-                    #metagroup[something][something] = V[i + start, j] Something
-                    raise NotImplementedError("VCache building not implemented yet")
+                    curr_j = j * 2 + (mg_i % 2)
+                    metagroup[curr_i][curr_j] = V[i, j]
+                    curr_i = (curr_i - 1) % self.d
             self.values.append(metagroup)
 
+    def push_back(self, value):
+        """Append one value vector using the same layout as _build."""
+        assert value.shape[0] == self.d, f"value has {value.shape[0]} cols, expected d={self.d}"
 
+        if self.values is None:
+            self.values = []
+
+        if self.curr_values % self.N == 0:
+            self.values.append([np.zeros(self.N) for _ in range(self.d)])
+
+        mg_i = self.curr_values % self.N
+        curr_i = mg_i // 2
+        metagroup = self.values[-1]
+        for j in range(self.d):
+            curr_j = j * 2 + (mg_i % 2)
+            metagroup[curr_i][curr_j] = value[j]
+            curr_i = (curr_i - 1) % self.d
+
+        self.curr_values += 1
+
+
+def _print_vcache_layout(vcache, label):
+    print(f"  {label}: metagroups={len(vcache.values)}")
+    for mg_idx, metagroup in enumerate(vcache.values):
+        print(f"    metagroup {mg_idx}")
+        for lane_idx, lane_ct in enumerate(metagroup):
+            print(f"      lane {lane_idx}: {lane_ct}")
 
 def main():
     ok = True
@@ -585,6 +616,22 @@ def main():
     K_more = np.random.randn(4, d)
     ok &= _run_kcache_path_test("add-1", Q, K_base, K_more[:1], N, d, H)
     ok &= _run_kcache_path_test("add-many", Q, K_base, K_more, N, d, H)
+
+    print("\n=== VCache storage demo (constant vectors) ===")
+    N, d, H = 8, 4, 1
+    n_vals = 7
+    V_demo = np.vstack([np.full((d,), i + 1.0) for i in range(n_vals)])
+    print(f"  params: N={N}, d={d}, H={H}, n_values={n_vals}")
+    print("  input values (row i is filled with i+1):")
+    print(f"  {V_demo}")
+    vcache_demo = VCache(N, d, V_demo, H)
+    _print_vcache_layout(vcache_demo, "stored V-cache")
+
+    print("  incremental push_back view:")
+    vcache_inc = VCache(N, d, V_demo[:-1], H)
+    _print_vcache_layout(vcache_inc, "before push_back")
+    vcache_inc.push_back(V_demo[-1])
+    _print_vcache_layout(vcache_inc, "after push_back")
 
 
     print("\n=== Visual interleaving demo (incremental add) ===")
