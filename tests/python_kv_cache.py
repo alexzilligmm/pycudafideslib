@@ -577,20 +577,9 @@ def main():
         print(f"  {lab:3s} ({di}→{do}): {e:.2e} {t}")
         ok &= (e < 1e-10)
 
-    # ── Single-head QK^T ──
-    # print("\n=== QK^T single-head decoding (1 query) ===")
-    # for lab, N, d, nk in [("toy",8,4,5),("exact",8,4,4),("1tok",8,4,1),("med",32,8,10),("big",128,16,20)]:
-    #     np.random.seed(42)
-    #     ok &= _run(lab, np.random.randn(d), np.random.randn(nk, d), N, d, 1)
-
-    # print("\n=== QK^T single-head classification (n queries) ===")
-    # for lab, N, d, n in [("tiny",8,4,3),("small",32,8,6),("med",64,8,15)]:
-    #     np.random.seed(42)
-    #     ok &= _run(lab, np.random.randn(n, d), np.random.randn(n, d), N, d, 1)
-
     # ── Multi-head QK^T ──
     print("\n=== QK^T multi-head decoding ===")
-    for lab, N, d, H, nk in [("8h",8,4,2,3)]:
+    for lab, N, d, H, nk in [("2h",8,4,2,3), ("4h",64,8,4,12),("8h",128,16,8,8)]:
         np.random.seed(42)
         ok &= _run(lab, np.random.randn(d), np.random.randn(nk, d), N, d, H)
 
@@ -598,15 +587,6 @@ def main():
     for lab, N, d, H, n in [("2h",8,4,2,3),("4h",64,8,4,12),("8h",128,16,8,8)]:
         np.random.seed(42)
         ok &= _run(lab, np.random.randn(n, d), np.random.randn(n, d), N, d, H)
-
-    # ── Batched prefill (inner rotations) ──
-    # print("\n=== QK^T batched prefill ===")
-    # for lab, N, d, H, nq, nk in [
-    #     ("1h",8,4,1,3,3),("2h",8,4,2,3,3),("4h",64,8,4,12,12),
-    #     ("ragged",64,8,4,7,10),("8h",128,16,8,8,15)
-    # ]:
-    #     np.random.seed(42)
-    #     ok &= _run(lab, np.random.randn(nq, d), np.random.randn(nk, d), N, d, H, batched=True)
 
     # ── KCache construction paths ──
     print("\n=== KCache build paths (full vs incremental add) ===")
