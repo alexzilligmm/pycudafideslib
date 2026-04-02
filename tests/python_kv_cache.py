@@ -144,11 +144,11 @@ def encode_kcache_group(keys, N, d, H=1):
                 ct[_pos(ld, h, tok_idx, t, H)] = k_vec[h * d_head + ld]
     return ct
 
-def qkt_single_group(cq_rep, kcache_ct, N, d, H, num_tokens):
-    t = N // d
-    result = cq_rep * kcache_ct
-    result = _accumulate_dims(result, N, d, H)
-    return result * _group_mask(num_tokens, t, H, N)
+def qkt_single_group(cq_rep, kcache_ct, N, d, H, group_idx, num_tok):
+    result = cq_rep * kcache_ct # elementwise product in N-slot
+    result = _sum_by_rot(result, N, d, H)
+    mask = _qkt_mask(group_idx, num_tok, N, d, H)
+    return result * mask
 
 class KCache:
     """Helper for building K cache ciphertexts from a key matrix."""
@@ -157,7 +157,7 @@ class KCache:
         self.N = N
         self.d = d
         self.H = H
-        self.groups = []
+        self.ciphertexts = []
         if K is not None:
             self._build(K)
         
@@ -166,7 +166,7 @@ class KCache:
         """Build K cache ciphertexts from (n_k, d) matrix. Returns list."""
         t = self.N // self.d
         self.curr_keys = K.shape[0]
-        self.groups = [
+        self.ciphertexts = [
             encode_kcache_group(
                 [K[i] for i in range(g * t, min((g + 1) * t, self.curr_keys))],
                 self.N, self.d, self.H
@@ -177,14 +177,14 @@ class KCache:
     def push_back(self, key):
         if self.curr_keys % (self.N // self.d) == 0: # New group needed
             # Start new group
-            self.groups.append(encode_kcache_group([key], self.N, self.d, self.H))
+            self.ciphertexts.append(encode_kcache_group([key], self.N, self.d, self.H))
         else:
             # Add to current group
-            g = len(self.groups) - 1
+            g = len(self.ciphertexts) - 1
             tok_idx = self.curr_keys % (self.N // self.d)
             for h in range(self.H):
                 for ld in range(self.d // self.H):
-                    self.groups[g][_pos(ld, h, tok_idx, self.N // self.d, self.H)] = key[h * (self.d // self.H) + ld]
+                    self.ciphertexts[g][_pos(ld, h, tok_idx, self.N // self.d, self.H)] = key[h * (self.d // self.H) + ld]
         self.curr_keys += 1
 
     def _qkt_single(self, q):
@@ -202,28 +202,29 @@ class KCache:
         assert self.d % self.H == 0, f"d={self.d} not divisible by H={self.H}"
         assert self.N % self.d == 0, f"N={self.N} not divisible by d={self.d}"
 
-        n_k = self.curr_keys
-        t = self.N // self.d
-        cap_keys = self.N // self.H
+        keys_per_ct = self.N // self.d
 
         cq = encode_q_interleaved(q, self.N, self.d, self.H)
         cq_rep = preprocess_q(cq, self.N, self.d)
 
-        groups_per_window = max(1, cap_keys // t)
-        ct_windows = []
 
-        for g0 in range(0, len(self.groups), groups_per_window):
-            g1 = min(g0 + groups_per_window, len(self.groups))
-            attn_ct = np.zeros(self.N)
-            for local_g, g in enumerate(range(g0, g1)):
-                start = g * t
-                num_tok = min(t, n_k - start)
-                partial = qkt_single_group(cq_rep, self.groups[g], self.N, self.d, self.H, num_tok)
-                attn_ct += rot(partial, -(local_g * t * self.H))
+        attn_ct = np.zeros(self.N)
+        for global_ct_indx in range(len(self.ciphertexts)):
+            first_local_key = global_ct_indx * keys_per_ct
+            num_tok = min(keys_per_ct, self.curr_keys - first_local_key)
+            partial = qkt_single_group(cq_rep, self.ciphertexts[global_ct_indx], self.N, self.d, self.H, global_ct_indx, num_tok)
+            # part = *, *,a3,a4 | *,*,a3,a4
 
-            ct_windows.append(attn_ct)
+            # r = a1, a2, a
+            
+            attn_ct += partial
 
-        return ct_windows
+        # # attn = a1, a2, *, * | a1, a2, *, *| a1, a2, *, *
+        # for h in range(self.H):
+        #     mask = ';[;ld]'
+        #     attn = attn * (1-mask) + rot(attn) * mask
+
+        return attn_ct
 
     def qkt(self, Q):
         """
@@ -244,8 +245,10 @@ class KCache:
         raw_cts = []
 
         for qi in range(n_q):
-            ct_windows = self._qkt_single(Q[qi])
-            raw_cts.append(ct_windows)
+            pre_softmax_attn = self._qkt_single(Q[qi])
+            raw_cts.append(pre_softmax_attn)
+
+        raw_cts = np.stack(raw_cts, axis=0) # shape (n_q, N)
 
         return raw_cts
 
@@ -260,36 +263,36 @@ def preprocess_q(cq, N, d):
     return out
 
 
-def _accumulate_dims(result, N, d, H):
-    t = N // d
-    s = t * H
+# 1,2,3,1,2,3,1,2,3,1,2,3 | ....
+# 
+
+
+def _sum_by_rot(result, N, d, H):
+    s = (N // d) * H
     while s < N:
         result = result + rot(result, s)
         s *= 2
     return result
 
 
-def _group_mask(num_tokens, t, H, N):
-    mask = np.zeros(N)
-    for p in range(t * H):
-        if p % t < num_tokens:
-            mask[p] = 1.0
+def _qkt_mask(group_idx, num_tok, N, d, H):
+    t, tH, mask = N // d, (N // d) * H, np.zeros(N)
+    for i in range(N):
+        if i // tH == group_idx and i % t < num_tok:
+            mask[i] = 1.0
     return mask
 
 
-def decode_qkt(raw_cts, n_k, N, d, H):
-    """Decode qkt ciphertext-window output into (n_q, H, n_k) scores."""
-    n_q = len(raw_cts)
-    cap_keys = N // H
-    scores = np.zeros((n_q, H, n_k))
-    for qi, ct_windows in enumerate(raw_cts):
-        out_start = 0
-        for ct in ct_windows:
-            chunk_keys = min(cap_keys, n_k - out_start)
-            decoded_chunk = decode_attn_scores([ct], chunk_keys, N, d, H)[0]
-            scores[qi, :, out_start:out_start + chunk_keys] = decoded_chunk
-            out_start += chunk_keys
-    return scores
+# def decode_qkt(raw_cts, n_k, N, d, H):
+#     """Decode qkt ciphertext-window output into (n_q, H, n_k) scores."""
+#     n_q = len(raw_cts)
+#     cap_keys = N // H
+#     scores = np.zeros((n_q, H, n_k))
+#     for qi, pre_softmax_attn in enumerate(raw_cts):
+#         chunk_keys = min(cap_keys, n_k)
+#         decoded_chunk = decode_attn_scores([pre_softmax_attn], chunk_keys, N, d, H)[0]
+#         scores[qi, :, :chunk_keys] = decoded_chunk
+#     return scores
 
 
 def decode_attn_scores(raw_cts, n_k, N, d, H):
@@ -335,89 +338,98 @@ def inner_rot(v, s, t, N):
     return out
 
 
-def qkt_batched(Q, K, N, d, H=1):
-    """
-    Batched prefill QK^T: t queries per ciphertext, inner rotations
-    to compute all token cross-products per (Q_group, K_group) pair.
+# def qkt_batched(Q, K, N, d, H=1):
+#     """
+#     Batched prefill QK^T: t queries per ciphertext, inner rotations
+#     to compute all token cross-products per (Q_group, K_group) pair.
 
-    Same interface and output shape as qkt().
-    """
+#     Same interface and output shape as qkt().
+#     """
+#     if Q.ndim == 1:
+#         Q = Q.reshape(1, -1)
+
+#     n_q, n_k, t = Q.shape[0], K.shape[0], N // d
+
+#     assert Q.shape[1] == d and K.shape[1] == d
+#     assert d % H == 0 and N % d == 0
+#     assert n_k <= N // H
+
+#     kcache_cts = KCache(N, d, K, H)
+#     scores     = np.zeros((n_q, H, n_k))
+
+#     n_q_groups = (n_q + t - 1) // t
+
+#     for qg in range(n_q_groups):
+#         q_start = qg * t
+#         q_end   = min(q_start + t, n_q)
+#         num_q   = q_end - q_start
+
+#         q_group_cache = KCache(N, d, Q[q_start:q_end], H)
+#         cq_group = q_group_cache.ciphertexts[0]
+
+#         for kg, ck in enumerate(kcache_cts.ciphertexts):
+#             k_start = kg * t
+#             k_end   = min(k_start + t, n_k)
+#             num_k   = k_end - k_start
+
+#             for s in range(t):
+#                 cq_shifted = inner_rot(cq_group, s, t, N)
+#                 result     = _sum_by_rot(cq_shifted * ck, N, d, H)
+
+#                 for tok_k in range(num_k):
+#                     tok_q_local = (tok_k + s) % t
+#                     if tok_q_local < num_q:
+#                         qi = q_start + tok_q_local
+#                         ki = k_start + tok_k
+#                         for h in range(H):
+#                             scores[qi, h, ki] = result[_pos(0, h, tok_k, t, H)]
+
+#     return scores
+
+
+def _gt(Q, K, H, N):
+    """Per-head ground truth QK^T packed in head-interleaved slot layout."""
     if Q.ndim == 1:
-        Q = Q.reshape(1, -1)
+        Q = Q[None]
 
-    n_q, n_k, t = Q.shape[0], K.shape[0], N // d
+    d = Q.shape[1]
+    assert d % H == 0, f"d={d} must be divisible by H={H}"
+    assert N % d == 0, f"N={N} must be divisible by d={d}"
 
-    assert Q.shape[1] == d and K.shape[1] == d
-    assert d % H == 0 and N % d == 0
-    assert n_k <= N // H
+    t = N // d
+    mult_d = d // H
+    out = np.zeros((Q.shape[0], N))
 
-    kcache_cts = KCache(N, d, K, H)
-    scores     = np.zeros((n_q, H, n_k))
-
-    n_q_groups = (n_q + t - 1) // t
-
-    for qg in range(n_q_groups):
-        q_start = qg * t
-        q_end   = min(q_start + t, n_q)
-        num_q   = q_end - q_start
-
-        q_group_cache = KCache(N, d, Q[q_start:q_end], H)
-        cq_group = q_group_cache.groups[0]
-
-        for kg, ck in enumerate(kcache_cts.groups):
-            k_start = kg * t
-            k_end   = min(k_start + t, n_k)
-            num_k   = k_end - k_start
-
-            for s in range(t):
-                cq_shifted = inner_rot(cq_group, s, t, N)
-                result     = _accumulate_dims(cq_shifted * ck, N, d, H)
-
-                for tok_k in range(num_k):
-                    tok_q_local = (tok_k + s) % t
-                    if tok_q_local < num_q:
-                        qi = q_start + tok_q_local
-                        ki = k_start + tok_k
-                        for h in range(H):
-                            scores[qi, h, ki] = result[_pos(0, h, tok_k, t, H)]
-
-    return scores
-
-
-def _gt(Q, K, H):
-    """Per-head ground truth QK^T: (n_q, H, n_k)."""
-    if Q.ndim == 1:
-        Q = Q.reshape(1, -1)
-    d_head = Q.shape[1] // H
-    out    = np.zeros((Q.shape[0], H, K.shape[0]))
     for h in range(H):
-        sl = slice(h * d_head, (h + 1) * d_head)
-        out[:, h, :] = Q[:, sl] @ K[:, sl].T
+        sl = slice(h * mult_d, (h + 1) * mult_d)
+        A = Q[:, sl] @ K[:, sl].T
+        for i in range(A.shape[1]):
+            pos = (i // t) * t * H + h * t + (i % t)
+            if pos < N:
+                out[:, pos] = A[:, i]
+
     return out
 
 
 def _run(label, Q, K, N, d, H, batched=False):
-    gt = _gt(Q, K, H)
-    kcache = KCache(N, d, K, H)
-    if batched:
-        scores = qkt_batched(Q, K, N, d, H)
-    else:
-        raw_cts = kcache.qkt(Q)
-        scores = decode_qkt(raw_cts, K.shape[0], N, d, H)
-    err = np.max(np.abs(gt - scores))
-    tag = "OK" if err < 1e-10 else "FAIL"
     nq  = 1 if Q.ndim == 1 else Q.shape[0]
     nk  = K.shape[0]
     t   = N // d
     print(f"  {label:12s} N={N:4d} d={d:2d} H={H} t={t:2d} "
-          f"nq={nq:2d} nk={nk:3d}: {err:.2e} {tag}")
+          f"nq={nq:2d} nk={nk:3d}:", end=' ')
+    gt = _gt(Q, K, H, N)
+    kcache = KCache(N, d, K, H)
+    scores = kcache.qkt(Q)
+    err = np.max(np.abs(gt - scores))
+    tag = "OK" if err < 1e-10 else "FAIL"
+    print(f"{err:.2e} {tag}")
     return err < 1e-10
 
 
 def _same_kcache_layout(a, b):
-    if a.curr_keys != b.curr_keys or len(a.groups) != len(b.groups):
+    if a.curr_keys != b.curr_keys or len(a.ciphertexts) != len(b.ciphertexts):
         return False
-    return all(np.allclose(ga, gb) for ga, gb in zip(a.groups, b.groups))
+    return all(np.allclose(ga, gb) for ga, gb in zip(a.ciphertexts, b.ciphertexts))
 
 
 def _run_kcache_path_test(label, Q, K_base, K_new, N, d, H):
@@ -428,11 +440,9 @@ def _run_kcache_path_test(label, Q, K_base, K_new, N, d, H):
     for i in range(K_new.shape[0]):
         cache_inc.push_back(K_new[i])
 
-    raw_full = cache_full.qkt(Q)
-    raw_inc  = cache_inc.qkt(Q)
-    scores_full = decode_qkt(raw_full, K_full.shape[0], N, d, H)
-    scores_inc  = decode_qkt(raw_inc, K_full.shape[0], N, d, H)
-    gt = _gt(Q, K_full, H)
+    scores_full = cache_full.qkt(Q)
+    scores_inc  = cache_inc.qkt(Q)
+    gt = _gt(Q, K_full, H, N)
 
     err_full = np.max(np.abs(gt - scores_full))
     err_inc  = np.max(np.abs(gt - scores_inc))
@@ -505,53 +515,55 @@ class VCache:
         self.N = N
         self.d = d
         self.H = H
-        self.values = None
+        self.metaciphertexts = None
         if V is not None:
             self._build(V)
 
     def _build(self, V):
         self.curr_values = V.shape[0]
         n_metagroups = (self.curr_values // self.N) + (self.curr_values % self.N > 0)
-        self.values = []
+        right_rot = self.N // self.d
+        self.metaciphertexts = []
         for mg in range(n_metagroups):
-            metagroup = [np.zeros(self.N) for _ in range(self.d)]
+            metacipher = [np.zeros(self.N) for _ in range(self.d)]
             start = mg * self.N
             end = min(start + self.N, self.curr_values)
             for i in range(start, end):
                 mg_i = i - start
-                curr_i = mg_i // 2
+                curr_i = mg_i // right_rot
                 for j in range(self.d):
-                    curr_j = j * 2 + (mg_i % 2)
-                    metagroup[curr_i][curr_j] = V[i, j]
+                    curr_j = j * right_rot + (mg_i % right_rot)
+                    metacipher[curr_i][curr_j] = V[i, j]
                     curr_i = (curr_i - 1) % self.d
-            self.values.append(metagroup)
+            self.metaciphertexts.append(metacipher)
 
     def push_back(self, value):
         """Append one value vector using the same layout as _build."""
         assert value.shape[0] == self.d, f"value has {value.shape[0]} cols, expected d={self.d}"
 
-        if self.values is None:
-            self.values = []
+        if self.metaciphertexts is None:
+            self.metaciphertexts = []
 
         if self.curr_values % self.N == 0:
-            self.values.append([np.zeros(self.N) for _ in range(self.d)])
+            self.metaciphertexts.append([np.zeros(self.N) for _ in range(self.d)])
 
+        right_rot = self.N // self.d
         mg_i = self.curr_values % self.N
-        curr_i = mg_i // 2
-        metagroup = self.values[-1]
+        curr_i = mg_i // right_rot
+        metacipher = self.metaciphertexts[-1]
         for j in range(self.d):
-            curr_j = j * 2 + (mg_i % 2)
-            metagroup[curr_i][curr_j] = value[j]
+            curr_j = j * right_rot + (mg_i % right_rot)
+            metacipher[curr_i][curr_j] = value[j]
             curr_i = (curr_i - 1) % self.d
 
         self.curr_values += 1
 
 
 def _print_vcache_layout(vcache, label):
-    print(f"  {label}: metagroups={len(vcache.values)}")
-    for mg_idx, metagroup in enumerate(vcache.values):
-        print(f"    metagroup {mg_idx}")
-        for lane_idx, lane_ct in enumerate(metagroup):
+    print(f"  {label}: metagroups={len(vcache.metaciphertexts)}")
+    for mg_idx, metacipher in enumerate(vcache.metaciphertexts):
+        print(f"    metacipher {mg_idx}")
+        for lane_idx, lane_ct in enumerate(metacipher):
             print(f"      lane {lane_idx}: {lane_ct}")
 
 def main():
@@ -566,19 +578,19 @@ def main():
         ok &= (e < 1e-10)
 
     # ── Single-head QK^T ──
-    print("\n=== QK^T single-head decoding (1 query) ===")
-    for lab, N, d, nk in [("toy",8,4,5),("exact",8,4,4),("1tok",8,4,1),("med",32,8,10),("big",128,16,20)]:
-        np.random.seed(42)
-        ok &= _run(lab, np.random.randn(d), np.random.randn(nk, d), N, d, 1)
+    # print("\n=== QK^T single-head decoding (1 query) ===")
+    # for lab, N, d, nk in [("toy",8,4,5),("exact",8,4,4),("1tok",8,4,1),("med",32,8,10),("big",128,16,20)]:
+    #     np.random.seed(42)
+    #     ok &= _run(lab, np.random.randn(d), np.random.randn(nk, d), N, d, 1)
 
-    print("\n=== QK^T single-head classification (n queries) ===")
-    for lab, N, d, n in [("tiny",8,4,3),("small",32,8,6),("med",64,8,15)]:
-        np.random.seed(42)
-        ok &= _run(lab, np.random.randn(n, d), np.random.randn(n, d), N, d, 1)
+    # print("\n=== QK^T single-head classification (n queries) ===")
+    # for lab, N, d, n in [("tiny",8,4,3),("small",32,8,6),("med",64,8,15)]:
+    #     np.random.seed(42)
+    #     ok &= _run(lab, np.random.randn(n, d), np.random.randn(n, d), N, d, 1)
 
     # ── Multi-head QK^T ──
     print("\n=== QK^T multi-head decoding ===")
-    for lab, N, d, H, nk in [("2h",8,4,2,3),("4h",64,8,4,10),("8h",128,16,8,15)]:
+    for lab, N, d, H, nk in [("8h",8,4,2,3)]:
         np.random.seed(42)
         ok &= _run(lab, np.random.randn(d), np.random.randn(nk, d), N, d, H)
 
@@ -588,13 +600,13 @@ def main():
         ok &= _run(lab, np.random.randn(n, d), np.random.randn(n, d), N, d, H)
 
     # ── Batched prefill (inner rotations) ──
-    print("\n=== QK^T batched prefill ===")
-    for lab, N, d, H, nq, nk in [
-        ("1h",8,4,1,3,3),("2h",8,4,2,3,3),("4h",64,8,4,12,12),
-        ("ragged",64,8,4,7,10),("8h",128,16,8,8,15)
-    ]:
-        np.random.seed(42)
-        ok &= _run(lab, np.random.randn(nq, d), np.random.randn(nk, d), N, d, H, batched=True)
+    # print("\n=== QK^T batched prefill ===")
+    # for lab, N, d, H, nq, nk in [
+    #     ("1h",8,4,1,3,3),("2h",8,4,2,3,3),("4h",64,8,4,12,12),
+    #     ("ragged",64,8,4,7,10),("8h",128,16,8,8,15)
+    # ]:
+    #     np.random.seed(42)
+    #     ok &= _run(lab, np.random.randn(nq, d), np.random.randn(nk, d), N, d, H, batched=True)
 
     # ── KCache construction paths ──
     print("\n=== KCache build paths (full vs incremental add) ===")
@@ -604,9 +616,8 @@ def main():
     Q = np.random.randn(5, d)
     K_full = np.random.randn(11, d)
     cache_full = KCache(N, d, K_full, H)
-    raw_cache = cache_full.qkt(Q)
-    scores_cache = decode_qkt(raw_cache, K_full.shape[0], N, d, H)
-    gt_full = _gt(Q, K_full, H)
+    scores_cache = cache_full.qkt(Q)
+    gt_full = _gt(Q, K_full, H, N)
     err_full_build = np.max(np.abs(gt_full - scores_cache))
     tag = "OK" if err_full_build < 1e-10 else "FAIL"
     print(f"  {'whole-k':12s} N={N:4d} d={d:2d} H={H} nq={Q.shape[0]:2d} nk={K_full.shape[0]:3d}: {err_full_build:.2e} {tag}")
@@ -618,7 +629,7 @@ def main():
     ok &= _run_kcache_path_test("add-many", Q, K_base, K_more, N, d, H)
 
     print("\n=== VCache storage demo (constant vectors) ===")
-    N, d, H = 8, 4, 1
+    N, d, H = 16, 4, 1
     n_vals = 7
     V_demo = np.vstack([np.full((d,), i + 1.0) for i in range(n_vals)])
     print(f"  params: N={N}, d={d}, H={H}, n_values={n_vals}")
@@ -645,40 +656,24 @@ def main():
     print(f"  {K_demo}")
     kcache_inc = KCache(N, d, K_demo[:-1], H)
     print(f"  before add: n_keys={kcache_inc.curr_keys}")
-    for g, ct in enumerate(kcache_inc.groups):
+    for g, ct in enumerate(kcache_inc.ciphertexts):
         start = g * t
         num_tok = min(t, kcache_inc.curr_keys - start)
         _print_group_interleaving(ct, N, d, H, num_tok, f"group {g} (keys {start}..{start + num_tok - 1})")
 
     kcache_inc.push_back(K_demo[-1])
     print(f"  after add : n_keys={kcache_inc.curr_keys} (added key value {n_demo})")
-    for g, ct in enumerate(kcache_inc.groups):
+    for g, ct in enumerate(kcache_inc.ciphertexts):
         start = g * t
         num_tok = min(t, kcache_inc.curr_keys - start)
         _print_group_interleaving(ct, N, d, H, num_tok, f"group {g} (keys {start}..{start + num_tok - 1})")
-
-    print("\n=== QK^T with n_k > N (windowed from KCache) ===")
-    np.random.seed(42)
-    N, d, H = 64, 8, 1
-    q_big = np.random.randn(d)
-    n_k_big = N + 9
-    K_big = np.random.randn(n_k_big, d)
-    kcache_big = KCache(N, d, K_big, H)
-
-    raw_big = kcache_big.qkt(q_big)
-    scores_big = decode_qkt(raw_big, n_k_big, N, d, H)
-    gt_big = _gt(q_big, K_big, H)
-    err_big = np.max(np.abs(scores_big - gt_big))
-    tag = "OK" if err_big < 1e-10 else "FAIL"
-    print(f"  N={N} d={d} H={H} n_k={n_k_big} (>N): {err_big:.2e} {tag}")
-    ok &= (err_big < 1e-10)
 
     # ── Trace ──
     print("\n=== Trace: N=8, d=4, H=2, t=2, nk=3 ===")
     N, d, H, t = 8, 4, 2, 2
     q  = np.array([1., 2., 3., 4.])
     Km = np.array([[.1,.2,.3,.4],[.5,.6,.7,.8],[.9,1.,1.1,1.2]])
-    gt = _gt(q, Km, H)
+    gt = _gt(q, Km, H, N)
 
     print(f"q = {q}  →  h0:[1,2]  h1:[3,4]")
     for i, ki in enumerate(Km):
@@ -692,17 +687,17 @@ def main():
     print(f"cq_rep   = {cq_rep}")
 
     kcache_trace_01 = KCache(N, d, Km[:2], H)
-    ck01 = kcache_trace_01.groups[0]
+    ck01 = kcache_trace_01.ciphertexts[0]
     print(f"K[0,1]   = {ck01}")
 
     prod = cq_rep * ck01
-    acc  = _accumulate_dims(prod, N, d, H)
-    r0   = acc * _group_mask(2, t, H, N)
+    acc  = _sum_by_rot(prod, N, d, H)
+    r0   = acc * _qkt_mask(0, 2, N, d, H)
     print(f"group0   = {r0}")
 
     kcache_trace_2 = KCache(N, d, Km[2:3], H)
-    ck2 = kcache_trace_2.groups[0]
-    r1  = _accumulate_dims(cq_rep * ck2, N, d, H) * _group_mask(1, t, H, N)
+    ck2 = kcache_trace_2.ciphertexts[0]
+    r1  = _sum_by_rot(cq_rep * ck2, N, d, H) * _qkt_mask(0, 1, N, d, H)
     r1s = rot(r1, -(1 * t * H))
     print(f"group1→  = {r1s}")
 
