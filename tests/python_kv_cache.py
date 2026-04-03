@@ -239,7 +239,7 @@ class VCache:
         for i in range(self.d // self.H):
             mask = np.zeros(self.N)
             for h in range(self.H):
-                mask[((self.N // self.d) * h) + ((self.N // self.H) * i) + right_rot] = 1.0
+                mask[i * (self.N // self.d) * self.H + h * (self.N // self.d) + right_rot] = 1.0
             self.metaciphertext[((self.curr_values // (self.N // self.d)) - i) % (self.d // self.H)] += value * mask
 
         self.curr_values += 1
@@ -249,7 +249,7 @@ class VCache:
         res = np.zeros(self.N)
         for ct in self.metaciphertext:
             res += ct * softmax_scores
-            softmax_scores = rot(softmax_scores, self.N // self.H) # rotate to align with next value
+            softmax_scores = rot(softmax_scores, (self.N // self.d) * self.H) # rotate to align with next value
 
         step = 1
         while step < self.N // self.d:
@@ -483,8 +483,8 @@ def calculate_per_head_logit_bounds(W_q, W_k, norm_type="layernorm"):
 if __name__ == "__main__":
     # main()
 
-    N = 16
-    d = 4
+    N = 32
+    d = 8
     H = 2
     n = 3
     assert n <= N // H, "Too many samples for demo parameters"
