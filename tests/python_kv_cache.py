@@ -55,6 +55,18 @@ def gt_attn_repack(gt_attn, H, N, d):
                 rep[_pos(i, h, 0, t, H)] = v
     return attn_repacked
 
+def rearrange_q_k_v(W, H):
+    # perm[r] = (r % H) · d_head + ⌊r / H⌋  →  old_col = h · d_head + ld
+
+    new_W = np.zeros_like(W)
+    d_in, d_out = W.shape
+    d_head = d_out // H
+    for r in range(d_out):
+        h = r % H
+        ld = r // H
+        new_W[:, r] = W[:, h * d_head + ld]
+    return new_W
+
 def _pos(local_dim, head, tok, t, H):
     """Ciphertext slot index for a (local_dim, head, token) triple."""
     return local_dim * t * H + head * t + tok
@@ -490,8 +502,8 @@ if __name__ == "__main__":
 
     N = 8
     d = 4
-    H = 4
-    n = 2
+    H = 2
+    n = 1
     assert n <= N // H, "Too many samples for demo parameters"
 
     X = np.random.randn(n, d)
@@ -539,12 +551,32 @@ if __name__ == "__main__":
     print("test_attn_repacked:")    
     print(test_attn_repacked)
 
-    rearranged_w_q = rearrange_q_k(W_Q, H) # d x d == d x (H * d_head)
-    rearranged_w_k = rearrange_q_k(W_K, H) # d x d == d x (H * d_head)
-    rearranged_w_v = rearrange_v(W_V, H) # d x d == (H * d_head) x d
+
+    # W_Q = np.arange(d * d).reshape(d, d) + 1
+    # W_K = np.arange(d * d).reshape(d, d) + 1
+
+    rearranged_w_q = rearrange_q_k_v(W_Q, H) # d x d == d x (H * d_head)
+    rearranged_w_k = rearrange_q_k_v(W_K, H) # d x d == d x (H * d_head)
+    rearranged_w_v = rearrange_q_k_v(W_V, H) # d x d == d x (H * d_head)
+
+    # rearranged_w_v = rearrange_v(W_V, H) # d x d == (H * d_head) x d
 
     encoded_W_q = encode_W(rearranged_w_q, N, d, alpha=1, is_up=True)
     encoded_W_k = encode_W(rearranged_w_k, N, d, alpha=1, is_up=True)
     encoded_W_v = encode_W(rearranged_w_v, N, d, alpha=1, is_up=True)
 
+    computed_params = compute_params(N, d, alpha=1, is_up=True)
+
     print("encoded_W_k shape:", encoded_W_k.shape)
+    print("W_K")
+    print(W_K)
+    print("encoded_W_k:")
+    print(encoded_W_k)
+
+    encoded_x = encode_x(X[0], N, d, alpha=1, is_up=True)
+
+    encoded_K = cachemir_vmm(encoded_x, encoded_W_k, N, d, d, alpha=1, is_up=True, computed_params=computed_params)
+
+    print(K)
+    print(encoded_K)
+

@@ -91,23 +91,10 @@ def decode_output(cy, N, t, tp, alpha, d, d_out, is_up):
     return y 
 
 
-def cachemir_vmm(x, W, N):
-    d_in, d_out = W.shape
-    assert len(x) == d_in
+def cachemir_vmm(x, W, N, d, d_out, alpha, is_up, computed_params):
+    t, tp, tp_in, tp_out, r_i, r_o, n_pt = computed_params
 
-    if d_in <= d_out:
-        d = d_in;  alpha = d_out // d;  is_up = True
-    else:
-        d = d_out; alpha = d_in  // d;  is_up = False
-    assert alpha * d == max(d_in, d_out)
-    assert N % d == 0 and alpha * d * d >= N
-
-    t, tp, tp_in, tp_out, r_i, r_o, n_pt = compute_params(N, d, alpha, is_up)
-
-    ptx = encode_x(x, N, d, alpha, is_up)
-    pts_W = encode_W(W, N, d, alpha, is_up)
-
-    ptx_prime = ptx.copy()
+    ptx_prime = x.copy()
     step = 1
     while step < tp_in:
         ptx_prime = ptx_prime + rot(ptx_prime, step * (t - 1))
@@ -120,7 +107,7 @@ def cachemir_vmm(x, W, N):
                  
     for k in range(r_o):
         for j in range(r_i):
-            cy_prime[k] += ptx_rotated[j] * pts_W[j * r_o + k]
+            cy_prime[k] += ptx_rotated[j] * W[j * r_o + k]
 
     cascade_rot = t * tp
     for k in range(r_o - 1, 0, -1):
@@ -133,7 +120,7 @@ def cachemir_vmm(x, W, N):
         cy = cy + rot(cy, step)
         step *= 2
     
-    return decode_output(cy, N, t, tp, alpha, d, d_out, is_up)
+    return cy
 
 def main():
     print("testing square matrix results")
