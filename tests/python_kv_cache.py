@@ -11,7 +11,7 @@ def pre_multi_head_comp(X, W_Q, W_K, W_V):
     return Q, K, V
     
 
-def multi_head_attention(Q, K, V, H):
+def multi_head_attention(Q, K, V, H, max_diff):
     """Ground-truth QK^T and QKV outputs for testing.
     Args:
         Q, K, V: shape (n_q, H, d_head)
@@ -21,12 +21,12 @@ def multi_head_attention(Q, K, V, H):
         gt_attn: shape (n_q, d) final attention output after softmax and V matmul
     """
 
-    gt_qkt = np.einsum('qhd,khd->qkh', Q, K)
-    attn_weights = np.exp(gt_qkt - np.max(gt_qkt, axis=-1, keepdims=True))
-    attn_weights = attn_weights / np.sum(attn_weights, axis=-1, keepdims=True)
-    gt_attn = np.einsum('qkh,khd->qhd', attn_weights, V).reshape(X.shape[0], -1)
+    gt_qkt = np.einsum('qhd,khd->qkh', Q, K) * V.shape[-1] ** -0.5
+    attn_weights = np.exp(gt_qkt - max_diff) # subtract max for numerical stability in softmax
+    attn_weights = attn_weights / np.sum(attn_weights, axis=1, keepdims=True)
+    gt_attn = np.einsum('qkh,khd->qhd', attn_weights, V).reshape(Q.shape[0], -1) # reshape back to (n_q, d)
 
-    return gt_qkt, gt_attn
+    return gt_qkt, attn_weights, gt_attn
 
 def gt_qkt_repack(gt_qkt, N, d):
     """Repack ground-truth QK^T into head-interleaved N-slot format."""
@@ -85,9 +85,9 @@ def encode_q_interleaved(q, N, d, H=1):
             ct[_pos(ld, h, 0, t, H)] = q[h * d_head + ld]
     return ct
 
-def neg_inf_mask(nk, N, d, H):
+def neg_inf_mask(nk, N, d, H, given_min=-1e30):
     t = N // d
-    m = np.full(N, -1e30) # TODO: use actual approximation min
+    m = np.full(N, given_min)
     for h in range(H):
         for tok in range(nk):
             m[_pos(tok // t, h, tok % t, t, H)] = 0.0
@@ -155,181 +155,112 @@ def head_reduce_sum(ct, N, d, H):
 
 def softmax(scores, nk, N, d, H, gt_max):
     out = np.zeros_like(scores)
-    ninf = neg_inf_mask(nk, N, d, H)
-    for qi in range(scores.shape[0]):
-        ct = scores[qi] + ninf # to get zeros in empty positions
-        e = np.exp(ct - gt_max[qi]) # exp for every row, interleaved by nature
-        s = head_reduce_sum(e, N, d, H) # 
-        out[qi] = e / s
+    ninf = neg_inf_mask(nk, N, d, H, -gt_max)
+    ct = scores + ninf # to get zeros in empty positions
+    e = np.exp(ct - gt_max) # exp for every row, interleaved by nature
+    s = head_reduce_sum(e, N, d, H) # 
+    out = e / s
     return out
 
 class KCache:
     """Helper for building K cache ciphertexts from a key matrix."""
-    def __init__(self, N, d, K=None, H=1):
+    def __init__(self, N, d, H):
         self.curr_keys = 0
         self.N = N
         self.d = d
         self.H = H
         self.ciphertexts = []
-        if K is not None:
-            self._build(K)
-        
-
-    def _build(self, K):
-        """Build K cache ciphertexts from (n_k, d) matrix. Returns list."""
-        t = self.N // self.d
-        self.curr_keys = K.shape[0]
-        self.ciphertexts = [
-            encode_kcache_group(
-                [K[i] for i in range(g * t, min((g + 1) * t, self.curr_keys))],
-                self.N, self.d, self.H
-            )
-            for g in range((self.curr_keys + t - 1) // t)
-        ]
 
     def push_back(self, key):
         if self.curr_keys % (self.N // self.d) == 0: # New group needed
             # Start new group
-            self.ciphertexts.append(encode_kcache_group([key], self.N, self.d, self.H))
-        else:
-            # Add to current group
-            g = len(self.ciphertexts) - 1
-            tok_idx = self.curr_keys % (self.N // self.d)
-            for h in range(self.H):
-                for ld in range(self.d // self.H):
-                    self.ciphertexts[g][_pos(ld, h, tok_idx, self.N // self.d, self.H)] = key[h * (self.d // self.H) + ld]
+            self.ciphertexts.append(np.zeros(self.N))
+        # Add to current group
+        mask = np.zeros(self.N) # one-hot for position in group
+        for i in range(self.N):
+            mask[i] = i % (self.N // self.d) == 0
+        key = key * mask # zero out head dims that are not part of this key
+        self.ciphertexts[-1] += rot(key, -(self.curr_keys % (self.N // self.d))) # rotate to correct token position and add to group
         self.curr_keys += 1
 
-    def _qkt_single(self, q):
+    def qkt(self, query):
         """
         Compute QK^T for a single query vector against this cache.
 
         Args:
-            q: shape (d,)
+            query: encoded query vector in head-interleaved N-slot format
 
         Returns:
             ct_windows: list of N-slot ciphertext windows
         """
-        assert q.ndim == 1, "q must be a single vector"
-        assert q.shape[0] == self.d, f"q has {q.shape[0]} cols, expected d={self.d}"
-        assert self.d % self.H == 0, f"d={self.d} not divisible by H={self.H}"
-        assert self.N % self.d == 0, f"N={self.N} not divisible by d={self.d}"
-
-        def _encode_q_interleaved(q, N, d, H=1):
-            """
-            Encode one query vector into head-interleaved N-slot format.
-            Zeros in all token slots except tok=0.
-            """
-            t      = N // d
-            d_head = d // H
-            ct     = np.zeros(N)
-            for h in range(H):
-                for ld in range(d_head):
-                    ct[_pos(ld, h, 0, t, H)] = q[h * d_head + ld]
-            return ct
-
-        def _preprocess_q(cq, N, d):
-            t   = N // d
-            out = cq.copy()
-            step = 1
-            while step < t:
-                out = out + rot(out, -step)
-                step *= 2
-            return out
 
         keys_per_ct = self.N // self.d
 
-        cq = _encode_q_interleaved(q, self.N, self.d, self.H)
-        cq_rep = _preprocess_q(cq, self.N, self.d)
+        # Mask junk
+        mask = np.zeros(self.N) # one-hot for position in group
+        for i in range(self.N):
+            mask[i] = i % (self.N // self.d) == 0
+        query = query * mask
 
+        # Fill empty space
+        step = 1
+        while step < self.N // self.d:
+            query = query + rot(query, -step)
+            step *= 2
 
         attn_ct = np.zeros(self.N)
         for global_ct_indx in range(len(self.ciphertexts)):
             first_local_key = global_ct_indx * keys_per_ct
             num_tok = min(keys_per_ct, self.curr_keys - first_local_key)
-            partial = qkt_single_group(cq_rep, self.ciphertexts[global_ct_indx], self.N, self.d, self.H, global_ct_indx, num_tok)
+            partial = qkt_single_group(query, self.ciphertexts[global_ct_indx], self.N, self.d, self.H, global_ct_indx, num_tok)
             
             attn_ct += partial
 
-        return attn_ct
-
-    def qkt(self, Q):
-        """
-        Compute QK^T for one or multiple query vectors against this cache.
-
-        Args:
-            Q: shape (d,) or (n_q, d)
-
-        Returns:
-            raw_cts: list of per-query ciphertext-window lists
-        """
-        if Q.ndim == 1:
-            Q = Q.reshape(1, -1)
-
-        n_q = Q.shape[0]
-        assert Q.shape[1] == self.d, f"Q has {Q.shape[1]} cols, expected d={self.d}"
-
-        raw_cts = []
-
-        for qi in range(n_q):
-            pre_softmax_attn = self._qkt_single(Q[qi])
-            raw_cts.append(pre_softmax_attn)
-
-        raw_cts = np.stack(raw_cts, axis=0) # shape (n_q, N)
-
-        return raw_cts
-
+        return attn_ct * ((self.d // self.H) ** -0.5) # scale by sqrt(d_head)
 
 
 class VCache:
     """Helper for building V cache ciphertexts from a value matrix."""
-    def __init__(self, N, d, V=None, H=1):
+    def __init__(self, N, d, H=1):
         self.curr_values = 0
         self.N = N
         self.d = d
         self.H = H
-        self.metaciphertexts = None
-        if V is not None:
-            self._build(V)
-
-    def _build(self, V):
-        self.curr_values = V.shape[0]
-        n_metagroups = (self.curr_values // self.N) + (self.curr_values % self.N > 0)
-        right_rot = self.N // self.d
-        self.metaciphertexts = []
-        for mg in range(n_metagroups):
-            metacipher = [np.zeros(self.N) for _ in range(self.d)]
-            start = mg * self.N
-            end = min(start + self.N, self.curr_values)
-            for i in range(start, end):
-                mg_i = i - start
-                curr_i = mg_i // right_rot
-                for j in range(self.d):
-                    curr_j = j * right_rot + (mg_i % right_rot)
-                    metacipher[curr_i][curr_j] = V[i, j]
-                    curr_i = (curr_i - 1) % self.d
-            self.metaciphertexts.append(metacipher)
+        self.metaciphertext = None
 
     def push_back(self, value):
         """Append one value vector using the same layout as _build."""
-        assert value.shape[0] == self.d, f"value has {value.shape[0]} cols, expected d={self.d}"
 
-        if self.metaciphertexts is None:
-            self.metaciphertexts = []
+        if self.metaciphertext is None:
+            self.metaciphertext = [np.zeros(self.N) for _ in range(self.d // self.H)]
 
-        if self.curr_values % self.N == 0:
-            self.metaciphertexts.append([np.zeros(self.N) for _ in range(self.d)])
-
-        right_rot = self.N // self.d
-        mg_i = self.curr_values % self.N
-        curr_i = mg_i // right_rot
-        metacipher = self.metaciphertexts[-1]
-        for j in range(self.d):
-            curr_j = j * right_rot + (mg_i % right_rot)
-            metacipher[curr_i][curr_j] = value[j]
-            curr_i = (curr_i - 1) % self.d
+        right_rot = self.curr_values % (self.N // self.d)
+        value = rot(value, -right_rot)
+        for i in range(self.d // self.H):
+            mask = np.zeros(self.N)
+            for h in range(self.H):
+                mask[((self.N // self.d) * h) + ((self.N // self.H) * i) + right_rot] = 1.0
+            self.metaciphertext[((self.curr_values // (self.N // self.d)) - i) % (self.d // self.H)] += value * mask
 
         self.curr_values += 1
+
+    def softmaxV(self, softmax_scores):
+        """Compute weighted sum of V cache values given attention weights."""
+        res = np.zeros(self.N)
+        for ct in self.metaciphertext:
+            res += ct * softmax_scores
+            softmax_scores = rot(softmax_scores, self.N // self.H) # rotate to align with next value
+
+        step = 1
+        while step < self.N // self.d:
+            res = res + rot(res, step)
+            step *= 2
+
+        mask = np.zeros(self.N)
+        for i in range(self.N):
+            mask[i] = i % (self.N // self.d) == 0
+        res = res * mask # zero out non-head dims
+        return res
 
 
 def _print_group_interleaving(ct, N, d, H, num_tokens, label):
@@ -496,87 +427,116 @@ def main():
 
     print(f"\n{'ALL PASSED' if ok else 'SOME FAILURES'}")
 
+def calculate_per_head_logit_bounds(W_q, W_k, norm_type="layernorm"):
+    """
+    Calculates the theoretical maximum and minimum values (logits) that can enter 
+    the softmax of an attention mechanism, separated by head.
+    
+    Args:
+        W_q: Query weights of shape (num_heads, d_model, d_k)
+        W_k: Key weights of shape (num_heads, d_model, d_k)
+        norm_type: "layernorm" (mean=0, var=1) or "rmsnorm" (var=1). 
+                   Both result in vectors with an L2 norm of sqrt(d_model).
+                   
+    Returns:
+        dict: Containing 1D numpy arrays of shape (num_heads,) with the bounds.
+    """
+    assert W_q.shape == W_k.shape, "W_q and W_k must have the same shape."
+    assert W_q.ndim == 3, "Expected shape (num_heads, d_model, d_k)."
+    
+    num_heads, d_model, d_k = W_q.shape
+    
+    # 1. Calculate the base matrix M for all heads
+    # Shape: (num_heads, d_model, d_model)
+    M = np.matmul(W_q, W_k.transpose(0, 2, 1)) / np.sqrt(d_k)
+    
+    # 2. Project onto the normalized subspace
+    if norm_type == "layernorm":
+        # LayerNorm constraints: variance=1, mean=0.
+        # Project onto a mean-zero subspace using projection matrix P
+        P = np.eye(d_model) - (1.0 / d_model) * np.ones((d_model, d_model))
+        
+        # NumPy matmul broadcasting works beautifully here: 
+        # (d_model, d_model) @ (num_heads, d_model, d_model) @ (d_model, d_model)
+        M_proj = P @ M @ P
+    elif norm_type == "rmsnorm":
+        # RMSNorm constraint: root-mean-square=1. Mean is NOT forced to zero.
+        M_proj = M
+    else:
+        raise ValueError("norm_type must be 'layernorm' or 'rmsnorm'")
+
+    # Scaling factor because norm equals sqrt(d_model) instead of 1
+    # ||x||_2 * ||y||_2 = sqrt(d_model) * sqrt(d_model) = d_model
+    scale = float(d_model)
+    
+    # 3. Bounds for DIFFERENT tokens (i != j) -> Uses Singular Values
+    # compute_uv=False saves computation by only returning the singular values
+    # Shape of S_vals: (num_heads, d_model)
+    S_vals = np.linalg.svd(M_proj, compute_uv=False)
+    max_singular_vals = np.max(S_vals, axis=-1)  # Shape: (num_heads,)
+    
+    max_diff = scale * max_singular_vals
+
+    return max_diff
+
 
 if __name__ == "__main__":
     # main()
 
-    N = 8
+    N = 16
     d = 4
     H = 2
-    n = 1
+    n = 3
     assert n <= N // H, "Too many samples for demo parameters"
 
-    X = np.random.randn(n, d)
+    curr_X = np.random.randn(1, d)
+    curr_X = curr_X / np.linalg.norm(curr_X, axis=-1, keepdims=True)# normalize to match layernorm constraints
     W_Q = np.random.randn(d, d)
+    old_X = np.random.randn(n, d)
+    old_X = old_X / np.linalg.norm(old_X, axis=-1, keepdims=True)# normalize to match layernorm constraints
     W_K = np.random.randn(d, d)
     W_V = np.random.randn(d, d)
-    Q, K, V = pre_multi_head_comp(X, W_Q, W_K, W_V)
-    gt_qkt, gt_attn = multi_head_attention(Q, K, V, H=H)
-    print("gt_qkt shape:", gt_qkt.shape)
-    print("gt_attn shape:", gt_attn.shape)
 
-    qkt_repacked = gt_qkt_repack(gt_qkt, N, d)
-    # attn_repacked = gt_attn_repack(gt_attn, H, N, d)
-    print("qkt_repacked shape:", qkt_repacked.shape)
-    # print("attn_repacked shape:", attn_repacked.shape)
+    max_diff = calculate_per_head_logit_bounds(W_Q.reshape(d, H, d//H).transpose(1,0,2), W_K.reshape(d, H, d//H).transpose(1,0,2), norm_type="layernorm")
+    max_diff = np.max(max_diff)
 
-    test_gt_qkt = np.zeros_like(gt_qkt)
-    for q, q_row in enumerate(test_gt_qkt):
-        for k, k_row in enumerate(q_row):
-            for h in range(H):
-                k_row[...,h] = h + 1
-            k_row[...] += (k + 1) * 10
-        q_row[...] += (q + 1) * 100
+    Q = curr_X @ W_Q
+    K = old_X @ W_K
+    V = old_X @ W_V
+    Q = Q.reshape(Q.shape[0], H, -1)
+    K = K.reshape(K.shape[0], H, -1)
+    V = V.reshape(V.shape[0], H, -1)
 
-    print("test_gt_qkt:")
-    print(test_gt_qkt)
+    gt_qkt, soft_out, gt_attn = multi_head_attention(Q, K, V, H=H, max_diff=max_diff)
 
-    test_qkt_repacked = gt_qkt_repack(test_gt_qkt, N, d)
-    print('test_qkt_repacked:')
-    print(test_qkt_repacked)
-
-
-    test_gt_attn = np.zeros_like(gt_attn)
-    for q, q_row in enumerate(test_gt_attn):
-        for h in range(H):
-            for i in range(d // H):
-                q_row[h * (d // H) + i] = i + 1
-            q_row[h * (d // H): (h + 1) * (d // H)] += (h + 1) * 10
-        q_row[...] += (q + 1) * 100
-
-    print("test_gt_attn:")
-    print(test_gt_attn)
-
-    test_attn_repacked = gt_attn_repack(test_gt_attn, H, N, d)
-    print("test_attn_repacked:")    
-    print(test_attn_repacked)
-
-
-    # W_Q = np.arange(d * d).reshape(d, d) + 1
-    # W_K = np.arange(d * d).reshape(d, d) + 1
 
     rearranged_w_q = rearrange_q_k_v(W_Q, H) # d x d == d x (H * d_head)
     rearranged_w_k = rearrange_q_k_v(W_K, H) # d x d == d x (H * d_head)
     rearranged_w_v = rearrange_q_k_v(W_V, H) # d x d == d x (H * d_head)
-
-    # rearranged_w_v = rearrange_v(W_V, H) # d x d == (H * d_head) x d
-
     encoded_W_q = encode_W(rearranged_w_q, N, d, alpha=1, is_up=True)
     encoded_W_k = encode_W(rearranged_w_k, N, d, alpha=1, is_up=True)
     encoded_W_v = encode_W(rearranged_w_v, N, d, alpha=1, is_up=True)
 
     computed_params = compute_params(N, d, alpha=1, is_up=True)
 
-    print("encoded_W_k shape:", encoded_W_k.shape)
-    print("W_K")
-    print(W_K)
-    print("encoded_W_k:")
-    print(encoded_W_k)
+    kcache = KCache(N, d, H)
+    vcache = VCache(N, d, H)
+    for i, x in enumerate(old_X):
+        encoded_x = encode_x(x, N, d, alpha=1, is_up=True)
+        encoded_K = cachemir_vmm(encoded_x, encoded_W_k, N, d, d, alpha=1, is_up=True, computed_params=computed_params)
+        encoded_V = cachemir_vmm(encoded_x, encoded_W_v, N, d, d, alpha=1, is_up=True, computed_params=computed_params)
+        kcache.push_back(encoded_K)
+        vcache.push_back(encoded_V)
 
-    encoded_x = encode_x(X[0], N, d, alpha=1, is_up=True)
+    print("VCache layout:")
+    for ct in vcache.metaciphertext:
+        print(ct)
+    print(V)
 
-    encoded_K = cachemir_vmm(encoded_x, encoded_W_k, N, d, d, alpha=1, is_up=True, computed_params=computed_params)
-
-    print(K)
-    print(encoded_K)
-
+    encoded_x = encode_x(curr_X[0], N, d, alpha=1, is_up=True)
+    encoded_Q = cachemir_vmm(encoded_x, encoded_W_q, N, d, d, alpha=1, is_up=True, computed_params=computed_params)
+    attn_val = kcache.qkt(encoded_Q)
+    soft = softmax(attn_val, n, N, d, H, gt_max=max_diff)
+    res = vcache.softmaxV(soft)
+    print(res)
+    print(gt_attn)
