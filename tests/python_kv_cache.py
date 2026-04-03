@@ -1,22 +1,26 @@
 import numpy as np
-from linear import rot
+from linear import *
 
-def multi_head_attention(X, W_Q, W_K, W_V, H):
+def pre_multi_head_comp(X, W_Q, W_K, W_V):
+    Q, K, V = X @ W_Q, X @ W_K, X @ W_V
+
+    Q = Q.reshape(Q.shape[0], H, -1)
+    K = K.reshape(K.shape[0], H, -1)
+    V = V.reshape(V.shape[0], H, -1)
+
+    return Q, K, V
+    
+
+def multi_head_attention(Q, K, V, H):
     """Ground-truth QK^T and QKV outputs for testing.
     Args:
-        X: shape (n_q, d)
-        W_Q, W_K, W_V: shape (d, d)
+        Q, K, V: shape (n_q, H, d_head)
         H: number of heads
     Returns:
         gt_qkt: shape (n_q, n_k) raw QK^T scores
         gt_attn: shape (n_q, d) final attention output after softmax and V matmul
     """
 
-    Q, K, V = X @ W_Q, X @ W_K, X @ W_V
-
-    Q = Q.reshape(Q.shape[0], H, -1)
-    K = K.reshape(K.shape[0], H, -1)
-    V = V.reshape(V.shape[0], H, -1)
     gt_qkt = np.einsum('qhd,khd->qkh', Q, K)
     attn_weights = np.exp(gt_qkt - np.max(gt_qkt, axis=-1, keepdims=True))
     attn_weights = attn_weights / np.sum(attn_weights, axis=-1, keepdims=True)
@@ -34,27 +38,48 @@ def gt_qkt_repack(gt_qkt, N, d):
     for gt, rep in zip(gt_qkt, qkt_repacked):
         for k, k_row in enumerate(gt):
             for h, h_val in enumerate(k_row):
-                rep[k//2 * d_head + h*2 + (k%2)] = h_val
+                rep[k//t * t * H + h * t + k%t] = h_val
 
     return qkt_repacked
 
 def gt_attn_repack(gt_attn, H, N, d):
     """Repack ground-truth attention output into head-interleaved N-slot format."""
     n_q, d_total = gt_attn.shape
-    d_head = d_total // H
+    real_head_d = d_total // H
     t = N // d_total
-    assert n_q <= t, f"Too many queries {n_q} for N={N}, d={d}, H={H}"
     attn_repacked = np.zeros((n_q, N))
-    for q in range(n_q):
+    for gt, rep in zip(gt_attn, attn_repacked):
         for h in range(H):
-            for ld in range(d_head):
-                attn_repacked[q, h * t * H + ld] = gt_attn[q, h * d_head + ld]
+            gt_head = gt[h * real_head_d:(h + 1) * real_head_d]
+            for i, v in enumerate(gt_head):
+                rep[_pos(i, h, 0, t, H)] = v
     return attn_repacked
-
 
 def _pos(local_dim, head, tok, t, H):
     """Ciphertext slot index for a (local_dim, head, token) triple."""
     return local_dim * t * H + head * t + tok
+
+
+def encode_q_interleaved(q, N, d, H=1):
+    """
+    Encode one query vector into head-interleaved N-slot format.
+    Zeros in all token slots except tok=0.
+    """
+    t      = N // d
+    d_head = d // H
+    ct     = np.zeros(N)
+    for h in range(H):
+        for ld in range(d_head):
+            ct[_pos(ld, h, 0, t, H)] = q[h * d_head + ld]
+    return ct
+
+def neg_inf_mask(nk, N, d, H):
+    t = N // d
+    m = np.full(N, -1e30) # TODO: use actual approximation min
+    for h in range(H):
+        for tok in range(nk):
+            m[_pos(tok // t, h, tok % t, t, H)] = 0.0
+    return m
 
 
 def encode_kcache_group(keys, N, d, H=1):
@@ -92,6 +117,39 @@ def qkt_single_group(cq_rep, kcache_ct, N, d, H, group_idx, num_tok):
     result = _sum_by_rot(result, N, d, H)
     mask = _qkt_mask(group_idx, num_tok, N, d, H)
     return result * mask
+
+def head_reduce_sum(ct, N, d, H):
+    t  = N // d
+    tH = t * H
+    out = ct.copy()
+
+    step = 1
+    while step < t:
+        mask_nw = np.array([1.0 if (i % t) + step < t else 0.0 for i in range(N)])
+        mask_w  = 1.0 - mask_nw
+        # shift left inner head by step, shift right inner head by step - t to align values, mask to be sure we are not pulliting wrap around blocks
+        shifted = rot(out, step) * mask_nw + rot(out, step - t) * mask_w
+        # aggregate
+        out = out + shifted
+        step *= 2
+
+    # inter block aggregations, standard heap
+    step = tH
+    while step < N:
+        out = out + rot(out, step)
+        step *= 2
+
+    return out
+
+def softmax(scores, nk, N, d, H, gt_max):
+    out = np.zeros_like(scores)
+    ninf = neg_inf_mask(nk, N, d, H)
+    for qi in range(scores.shape[0]):
+        ct = scores[qi] + ninf # to get zeros in empty positions
+        e = np.exp(ct - gt_max[qi]) # exp for every row, interleaved by nature
+        s = head_reduce_sum(e, N, d, H) # 
+        out[qi] = e / s
+    return out
 
 class KCache:
     """Helper for building K cache ciphertexts from a key matrix."""
@@ -178,16 +236,8 @@ class KCache:
             first_local_key = global_ct_indx * keys_per_ct
             num_tok = min(keys_per_ct, self.curr_keys - first_local_key)
             partial = qkt_single_group(cq_rep, self.ciphertexts[global_ct_indx], self.N, self.d, self.H, global_ct_indx, num_tok)
-            # part = *, *,a3,a4 | *,*,a3,a4
-
-            # r = a1, a2, a
             
             attn_ct += partial
-
-        # # attn = a1, a2, *, * | a1, a2, *, *| a1, a2, *, *
-        # for h in range(self.H):
-        #     mask = ';[;ld]'
-        #     attn = attn * (1-mask) + rot(attn) * mask
 
         return attn_ct
 
@@ -216,7 +266,8 @@ class KCache:
         raw_cts = np.stack(raw_cts, axis=0) # shape (n_q, N)
 
         return raw_cts
-    
+
+
 
 class VCache:
     """Helper for building V cache ciphertexts from a value matrix."""
@@ -268,13 +319,13 @@ class VCache:
 
         self.curr_values += 1
 
+
 def _print_group_interleaving(ct, N, d, H, num_tokens, label):
     """Print one packed KCache group to inspect raw slot interleaving."""
     print(f"  {label}")
     print(f"    raw slots: {ct}")
 
-
-def _run(label, Q, K, N, d, H, batched=False):
+def _run(label, Q, K, N, d, H):
     nq  = 1 if Q.ndim == 1 else Q.shape[0]
     nk  = K.shape[0]
     t   = N // d
@@ -283,7 +334,22 @@ def _run(label, Q, K, N, d, H, batched=False):
     gt = _gt(Q, K, H, N)
     kcache = KCache(N, d, K, H)
     scores = kcache.qkt(Q)
+    print(scores)
     err = np.max(np.abs(gt - scores))
+    tag = "OK" if err < 1e-10 else "FAIL"
+    print(f"{err:.2e} {tag}")
+    return err < 1e-10
+
+def _run_softmax(label, Q, K, N, d, H):
+    nk = K.shape[0]
+    nq = 1 if Q.ndim == 1 else Q.shape[0]
+    if Q.ndim == 1: Q = Q[None]
+    t = N // d
+    print(f"  {label:12s} N={N:4d} d={d:2d} H={H} t={t:2d} nq={nq:2d} nk={nk:3d}:", end=' ')
+    scores = KCache(N, d, K, H).qkt(Q)
+    gt_sm, gt_sum, gt_max = _soft_gt(Q, K, H, N)
+    fhe_sm = softmax(scores, nk, N, d, H, gt_max)
+    err = np.max(np.abs(gt_sm - fhe_sm))
     tag = "OK" if err < 1e-10 else "FAIL"
     print(f"{err:.2e} {tag}")
     return err < 1e-10
@@ -330,6 +396,7 @@ def _print_vcache_layout(vcache, label):
         print(f"    metacipher {mg_idx}")
         for lane_idx, lane_ct in enumerate(metacipher):
             print(f"      lane {lane_idx}: {lane_ct}")
+            
 
 def main():
     ok = True
@@ -364,7 +431,17 @@ def main():
     K_more = np.random.randn(4, d)
     ok &= _run_kcache_path_test("add-1", Q, K_base, K_more[:1], N, d, H)
     ok &= _run_kcache_path_test("add-many", Q, K_base, K_more, N, d, H)
-
+    
+    print("\n=== Softmax (oracle max, FHE sum) ===")
+    for lab, N, d, H, nk in [
+        ("small",      16, 4, 2, 5),
+        ("gpt2", 32768, 1024, 16, 5)
+    ]:
+        np.random.seed(42)
+        Q = np.random.randn(12, d)
+        K = np.random.randn(nk, d)
+        ok &= _run_softmax(lab, Q, K, N, d, H)
+    
     print("\n=== VCache storage demo (constant vectors) ===")
     N, d, H = 16, 4, 1
     n_vals = 7
@@ -413,14 +490,16 @@ if __name__ == "__main__":
 
     N = 8
     d = 4
-    H = 2
-    n = 3
+    H = 4
+    n = 2
+    assert n <= N // H, "Too many samples for demo parameters"
 
     X = np.random.randn(n, d)
     W_Q = np.random.randn(d, d)
     W_K = np.random.randn(d, d)
     W_V = np.random.randn(d, d)
-    gt_qkt, gt_attn = multi_head_attention(X, W_Q, W_K, W_V, H=H)
+    Q, K, V = pre_multi_head_comp(X, W_Q, W_K, W_V)
+    gt_qkt, gt_attn = multi_head_attention(Q, K, V, H=H)
     print("gt_qkt shape:", gt_qkt.shape)
     print("gt_attn shape:", gt_attn.shape)
 
@@ -437,7 +516,35 @@ if __name__ == "__main__":
             k_row[...] += (k + 1) * 10
         q_row[...] += (q + 1) * 100
 
+    print("test_gt_qkt:")
     print(test_gt_qkt)
 
     test_qkt_repacked = gt_qkt_repack(test_gt_qkt, N, d)
+    print('test_qkt_repacked:')
     print(test_qkt_repacked)
+
+
+    test_gt_attn = np.zeros_like(gt_attn)
+    for q, q_row in enumerate(test_gt_attn):
+        for h in range(H):
+            for i in range(d // H):
+                q_row[h * (d // H) + i] = i + 1
+            q_row[h * (d // H): (h + 1) * (d // H)] += (h + 1) * 10
+        q_row[...] += (q + 1) * 100
+
+    print("test_gt_attn:")
+    print(test_gt_attn)
+
+    test_attn_repacked = gt_attn_repack(test_gt_attn, H, N, d)
+    print("test_attn_repacked:")    
+    print(test_attn_repacked)
+
+    rearranged_w_q = rearrange_q_k(W_Q, H) # d x d == d x (H * d_head)
+    rearranged_w_k = rearrange_q_k(W_K, H) # d x d == d x (H * d_head)
+    rearranged_w_v = rearrange_v(W_V, H) # d x d == (H * d_head) x d
+
+    encoded_W_q = encode_W(rearranged_w_q, N, d, alpha=1, is_up=True)
+    encoded_W_k = encode_W(rearranged_w_k, N, d, alpha=1, is_up=True)
+    encoded_W_v = encode_W(rearranged_w_v, N, d, alpha=1, is_up=True)
+
+    print("encoded_W_k shape:", encoded_W_k.shape)
