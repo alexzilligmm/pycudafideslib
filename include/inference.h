@@ -41,6 +41,9 @@ struct Inference {
     std::unordered_map<std::string, Ptx> mask;
     std::vector<Ptx>                     cache_mask;
 
+    int k_count = 0;   // number of keys pushed into K cache
+    int v_count = 0;   // number of values pushed into V cache
+
     CC& cc() { return fhe->cc; }
     const CC& cc() const { return fhe->cc; }
 };

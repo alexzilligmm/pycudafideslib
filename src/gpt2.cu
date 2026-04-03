@@ -33,6 +33,37 @@ static void collect_linear_rots(std::set<int32_t>& rots, int N, int d_in, int d_
         rots.insert(step);
 }
 
+static void collect_mha_rots(std::set<int32_t>& rots, int N, int hidDim, int numHeads) {
+    int t  = N / hidDim;
+    int tH = t * numHeads;
+
+    // cache_k_push: rotate key into token slot
+    for (int i = 1; i < t; ++i)
+        rots.insert(-i);
+
+    // qkt query fill: replicate across token slots
+    for (int step = 1; step < t; step *= 2)
+        rots.insert(-step);
+
+    // qkt sum_by_rot: reduce across dimension blocks
+    for (int s = tH; s < N; s *= 2)
+        rots.insert(s);
+
+    // head_reduce_sum: intra-head masked rotations
+    for (int step = 1; step < t; step *= 2) {
+        rots.insert(step);
+        rots.insert(step - t);  // wrap-around rotation
+    }
+    // head_reduce_sum: inter-block aggregation (same as sum_by_rot, already inserted)
+
+    // softmax_v: rotate scores by tH per metaciphertext lane (already inserted via sum_by_rot)
+    // softmax_v: intra-token reduction
+    for (int step = 1; step < t; step *= 2)
+        rots.insert(step);  // already inserted by head_reduce_sum, but explicit for clarity
+
+    // cache_v_push: rotate value into token slot (same as cache_k_push, already inserted)
+}
+
 std::vector<int32_t> compute_gpt2_rot_indices(
     int S, int hidDim, int ffDim, int numHeads, int seqLen) {
     std::set<int32_t> rots;
@@ -43,6 +74,9 @@ std::vector<int32_t> compute_gpt2_rot_indices(
     collect_linear_rots(rots, S, hidDim, ffDim);
     // down: ffDim x hidDim
     collect_linear_rots(rots, S, ffDim, hidDim);
+
+    // MHA: KCache, qkt
+    collect_mha_rots(rots, S, hidDim, numHeads);
 
     return std::vector<int32_t>(rots.begin(), rots.end());
 }

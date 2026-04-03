@@ -24,17 +24,15 @@ CacheMirParams compute_cm_params(int N, int d_in, int d_out) {
     return p;
 }
 
-std::vector<double> load_matrix_txt(const std::string& path, int d_in, int d_out) {
+std::vector<std::vector<double>> load_matrix_txt(const std::string& path, int d_in, int d_out) {
     std::ifstream f(path);
     if (!f.is_open()) throw std::runtime_error("Cannot open: " + path);
-    std::vector<double> vals;
-    vals.reserve(d_in * d_out);
-    double v;
-    while (f >> v) vals.push_back(v);
-    if ((int)vals.size() != d_in * d_out)
-        throw std::runtime_error(path + ": got " + std::to_string(vals.size())
-                                 + ", expected " + std::to_string(d_in * d_out));
-    return vals;
+    std::vector<std::vector<double>> M(d_in, std::vector<double>(d_out));
+    for (int i = 0; i < d_in; ++i)
+        for (int j = 0; j < d_out; ++j)
+            if (!(f >> M[i][j]))
+                throw std::runtime_error(path + ": unexpected end of data");
+    return M;
 }
 
 Ctx encode_linear_input(Inference& inf, const std::vector<double>& x, int d_in, int d_out) {
@@ -50,7 +48,7 @@ Ctx encode_linear_input(Inference& inf, const std::vector<double>& x, int d_in, 
     return encrypt(inf.cc(), inf.cc()->MakeCKKSPackedPlaintext(ptx), inf.fhe->pk());
 }
 
-std::vector<Ptx> encode_weight_matrix(Inference& inf, const std::vector<double>& vals,
+std::vector<Ptx> encode_weight_matrix(Inference& inf, const std::vector<std::vector<double>>& W,
                                        int d_in, int d_out) {
     int N     = inf.slots;
     auto p    = compute_cm_params(N, d_in, d_out);
@@ -64,7 +62,7 @@ std::vector<Ptx> encode_weight_matrix(Inference& inf, const std::vector<double>&
                 int row = ((i / p.t + j * p.t + i % p.tp_in) % p.d)
                         + ((i % p.t) / p.tp_in) * p.d;
                 int ms  = ((i / p.tp_out - k * cascade_shift) % M_out + M_out) % M_out;
-                pt[j * p.r_o + k][i] = vals[row * d_out + interleave_idx(ms, p.d, d_out)];
+                pt[j * p.r_o + k][i] = W[row][interleave_idx(ms, p.d, d_out)];
             }
 
     std::vector<Ptx> result(p.n_pt);

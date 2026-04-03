@@ -76,6 +76,7 @@ add_library(cachemir_lib STATIC
     src/linear_utils.cu
     src/linear.cu
     src/nonlinear.cu
+    src/attention.cu
     src/gpt2.cu
 )
 target_include_directories(cachemir_lib PUBLIC include ${_openfhe_incdirs})

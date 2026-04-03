@@ -9,9 +9,9 @@ struct CacheMirParams {
 };
 
 CacheMirParams compute_cm_params(int N, int d_in, int d_out);
-std::vector<double> load_matrix_txt(const std::string& path, int d_in, int d_out);
+std::vector<std::vector<double>> load_matrix_txt(const std::string& path, int d_in, int d_out);
 Ctx encode_linear_input(Inference& inf, const std::vector<double>& x, int d_in, int d_out);
-std::vector<Ptx> encode_weight_matrix(Inference& inf, const std::vector<double>& vals, int d_in, int d_out);
+std::vector<Ptx> encode_weight_matrix(Inference& inf, const std::vector<std::vector<double>>& W, int d_in, int d_out);
 std::vector<Ptx> load_weight_txt(Inference& inf, const std::string& path, int d_in, int d_out);
 
 Ctx linear(Inference& inf, const Ctx& x,
@@ -23,10 +23,6 @@ Ctx qkv_v(Inference& inf, const Ctx& x);
 
 std::tuple<Ctx, Ctx> rope(Inference& inf, const Ctx& q, const Ctx& k);
 
-void cache_kv(Inference& inf, const Ctx& k, const Ctx& v);
-
-Ctx qk_transpose(Inference& inf, const Ctx& q);
-Ctx attn_v       (Inference& inf, const Ctx& s);
 Ctx out_proj     (Inference& inf, const Ctx& x);
 
 std::pair<Ctx, Ctx> up_gate  (Inference& inf, const Ctx& x);

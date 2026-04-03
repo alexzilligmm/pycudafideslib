@@ -4,12 +4,12 @@
 #include <cmath>
 
 static std::vector<double> ref_matmul(const std::vector<double>& x,
-                                       const std::vector<double>& W,
+                                       const std::vector<std::vector<double>>& W,
                                        int d_in, int d_out) {
     std::vector<double> y(d_out, 0.0);
     for (int j = 0; j < d_out; ++j)
         for (int i = 0; i < d_in; ++i)
-            y[j] += x[i] * W[i * d_out + j];
+            y[j] += x[i] * W[i][j];
     return y;
 }
 
@@ -33,7 +33,7 @@ static std::vector<double> decode_output(const std::vector<double>& cy,
 }
 
 static bool run_test(const std::string& label, Inference& inf,
-                     const std::vector<double>& W, int d_in, int d_out,
+                     const std::vector<std::vector<double>>& W, int d_in, int d_out,
                      double tol = 1e-3) {
     std::cout << "[" << label << "] " << d_in << "x" << d_out << " ... " << std::flush;
 
@@ -84,8 +84,8 @@ int main() {
     std::mt19937 rng(0);
     std::uniform_real_distribution<double> dist(-0.01, 0.01);
     auto rand_mat = [&](int r, int c) {
-        std::vector<double> W(r * c);
-        for (auto& v : W) v = dist(rng);
+        std::vector<std::vector<double>> W(r, std::vector<double>(c));
+        for (auto& row : W) for (auto& v : row) v = dist(rng);
         return W;
     };
 
