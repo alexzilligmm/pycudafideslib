@@ -1,6 +1,4 @@
 import numpy as np
-from math import log2
-
 
 def rot(v, k):
     """Cyclic rotation: rot(v, k)[i] = v[(i+k) % len(v)]."""
@@ -218,4 +216,5 @@ def main():
     
     
 
-main()
+if __name__ == "__main__":
+    main()
