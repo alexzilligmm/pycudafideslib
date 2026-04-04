@@ -84,9 +84,9 @@ export OMP_NUM_THREADS=1
 
 echo ""
 echo "=========================================="
-echo "--- Running test_mha_o_proj ---"
+echo "--- Running mlp e2e ---"
 echo "=========================================="
-"$BUILD_DIR/bin/test_mha_o_proj" 2>&1 || true
+"$BUILD_DIR/bin/test_mlp_e2e" 2>&1 || true
 echo "Exit code: $?"
 
 echo ""

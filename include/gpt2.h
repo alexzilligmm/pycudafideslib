@@ -28,19 +28,28 @@ Ctx out_proj     (Inference& inf, const Ctx& x);
 std::pair<Ctx, Ctx> up_gate  (Inference& inf, const Ctx& x);
 Ctx                 down_proj(Inference& inf, const Ctx& x);
 
-// Rearrange up/gate weight columns for CacheMir interleaved output layout.
-// For d_in → d_out (d_out = alpha * d_in), permutes columns via interleave_idx.
-// new_W[:, c] = W[:, interleave_idx(c, d_in, d_out)]
 std::vector<std::vector<double>> rearrange_up_weights(
     const std::vector<std::vector<double>>& W, int d_in);
 
-// Rearrange down-projection rows for CacheMir interleaved input layout.
-// For d_in → d_out (d_in = alpha * d_out), permutes rows via interleave_idx.
-// new_W[r, :] = W[interleave_idx(r, d_out, d_in), :]
 std::vector<std::vector<double>> rearrange_down_weights(
     const std::vector<std::vector<double>>& W, int d_out);
 
 void rotate_add_inplace(Inference& inf, Ctx& x, int step);
+
+// ── MLP block: norm → up → gelu → down → residual ──────────────────────
+struct MLPConfig {
+    NormConfig  norm_cfg          = NORM_ENCLLM_GPT2;
+    int         norm_target_level = 14;
+
+    GeluConfig  gelu_cfg          = GELU_ENCLLM_GPT2;
+
+    int  pre_gelu_btp_level  = 0;   // 0 = no bootstrap
+    int  pre_down_btp_level  = 0;
+};
+
+inline const MLPConfig MLP_ENCLLM_GPT2 {};
+
+Ctx mlp(Inference& inf, const Ctx& x, const MLPConfig& cfg = MLP_ENCLLM_GPT2);
 
 struct GPT2LayerConfig {
     int          norm1_btp_level    = 7;    

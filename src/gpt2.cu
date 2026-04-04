@@ -153,6 +153,32 @@ void gpt2_prepare_weights(Inference& inf, const std::vector<std::string>& names)
     std::cout << "GPT-2 weights loaded." << std::endl;
 }
 
+Ctx mlp(Inference& inf, const Ctx& x, const MLPConfig& cfg) {
+    const int d     = inf.size.hidDim;
+    const int d_exp = inf.size.expDim;
+
+    Ctx x_res = x->Clone();
+    Ctx x_norm = norm(inf, x_res, cfg.norm_target_level, cfg.norm_cfg);
+    std::cout << "  [mlp] post-norm level=" << level_of(x_norm) << "\n";
+
+    Ctx up = linear(inf, x_norm, "up", d, d_exp);
+    std::cout << "  [mlp] post-up level=" << level_of(up) << "\n";
+
+    if (cfg.pre_gelu_btp_level > 0)
+        up = bootstrap_to(inf, up, (uint32_t)cfg.pre_gelu_btp_level);
+
+    Ctx act = gelu(inf, up, cfg.gelu_cfg);
+    std::cout << "  [mlp] post-gelu level=" << level_of(act) << "\n";
+
+    if (cfg.pre_down_btp_level > 0)
+        act = bootstrap_to(inf, act, (uint32_t)cfg.pre_down_btp_level);
+
+    Ctx down = linear(inf, act, "down", d_exp, d);
+    std::cout << "  [mlp] post-down level=" << level_of(down) << "\n";
+
+    return inf.cc()->EvalAdd(down, x_res);
+}
+
 void gpt2_generate_random_weights(Inference& inf, const std::vector<std::string>& names) {
     std::cout << "Preparing GPT-2 weights (interleaved)..." << std::endl;
     const int hidDim = inf.size.hidDim, expDim = inf.size.expDim, numSlots = inf.slots;
