@@ -190,7 +190,8 @@ Ctx attention_softmax(Inference& inf, const Ctx& scores,
     maybe_btp(e, "pre-head-reduce");
     Ctx s = head_reduce_sum(inf, e, hrs_dg);
 
-    double alpha = 1.0 / (double)num_keys;
+    double avg_exp = 0.5 + 0.5 * std::exp(-2.0 * given_max);
+    double alpha = 1.0 / ((double)num_keys * avg_exp);
     Ctx inv_init = encrypt_const(cc, alpha, (size_t)N, inf.fhe->pk());
 
     maybe_btp(s, "pre-inv");
