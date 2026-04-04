@@ -161,7 +161,7 @@ Ctx attention_softmax(Inference& inf, const Ctx& scores,
         uint32_t remaining = ((uint32_t)inf.total_depth > consumed)
                              ? ((uint32_t)inf.total_depth - consumed) : 0u;
         if (remaining < cfg.btp_min_remaining) {
-            ct = bootstrap_to(inf, ct, cfg.btp_min_remaining);
+            ct = bootstrap_to(inf, ct, cfg.btp_target_level); 
             std::cout << "  [attn_softmax] " << tag << " bootstrap, consumed="
                       << level_of(ct) << "\n";
         }
@@ -206,9 +206,10 @@ Ctx attention_softmax(Inference& inf, const Ctx& scores,
         gs_dg.min_remaining = cfg.gs_btp_min_remaining;
     }
     Ctx inv_s = goldschmidt_inv(cc, s, inv_init, cfg.gs_inv_iters, gs_dg);
-
-    maybe_btp(e, "pre-final-mult");
-    return cc->EvalMult(e, inv_s);
+    maybe_btp(inv_s, "pre-final-mult-inv");
+    maybe_btp(e, "pre-final-mult-exp");
+    Ctx result = cc->EvalMult(e, inv_s);
+    return result;
 }
 
 void prepare_vcache(Inference& inf) {

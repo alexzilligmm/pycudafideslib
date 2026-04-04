@@ -74,17 +74,9 @@ make_ckks_context(int logN                          = 12,
     params.SetFirstModSize(first_mod_bits);
     params.SetScalingTechnique(FLEXIBLEAUTO);
     params.SetBatchSize(slots);
-    // CacheMIR paper §7.1: sparse secret encapsulation (Bossuat et al. 2022)
-    // SPARSE_ENCAPSULATED uses special Chebyshev coefficients for bootstrap
-    // and maps to FIDESlib::ENCAPS GPU boot config.
-    // Note: h_weight > 0 signals "sparse secret" intent from the paper.
     params.SetSecretKeyDist(h_weight > 0 ? fideslib::SPARSE_ENCAPSULATED : UNIFORM_TERNARY);
     params.SetNumLargeDigits(num_large_digits);
     params.SetKeySwitchTechnique(HYBRID);
-    // Always fix ring dimension to match logN and disable security-based
-    // auto-selection.  Without this, non-bootstrap contexts pick a much
-    // larger ring dim for HEStd_128_classic, causing slot-count mismatches
-    // when creating plaintexts of size S = N/2.
     params.SetSecurityLevel(HEStd_NotSet);
     params.SetRingDim(1 << logN);
 
