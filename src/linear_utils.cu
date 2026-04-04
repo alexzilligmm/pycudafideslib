@@ -75,3 +75,27 @@ std::vector<Ptx> load_weight_txt(Inference& inf, const std::string& path,
                                   int d_in, int d_out) {
     return encode_weight_matrix(inf, load_matrix_txt(path, d_in, d_out), d_in, d_out);
 }
+
+// TODO: check these two
+std::vector<std::vector<double>> rearrange_up_weights(
+        const std::vector<std::vector<double>>& W, int d_in) {
+    int d_out = (int)W[0].size();
+    std::vector<std::vector<double>> out(d_in, std::vector<double>(d_out));
+    for (int c = 0; c < d_out; ++c) {
+        int src_col = interleave_idx(c, d_in, d_out);
+        for (int r = 0; r < d_in; ++r)
+            out[r][c] = W[r][src_col];
+    }
+    return out;
+}
+
+std::vector<std::vector<double>> rearrange_down_weights(
+        const std::vector<std::vector<double>>& W, int d_out) {
+    int d_in = (int)W.size();
+    std::vector<std::vector<double>> out(d_in, std::vector<double>(d_out));
+    for (int r = 0; r < d_in; ++r) {
+        int src_row = interleave_idx(r, d_out, d_in);
+        out[r] = W[src_row];
+    }
+    return out;
+}

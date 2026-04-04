@@ -10,6 +10,13 @@
 std::vector<std::vector<double>> rearrange_qkv_weights(
     const std::vector<std::vector<double>>& W, int H);
 
+// Rearrange W_O rows from head-grouped to interleaved order.
+// After attention, the ciphertext has interleaved layout (dim r = ld*H + h),
+// so W_O rows must be permuted to match: new_W[r,:] = W[h*d_head + ld, :]
+// Matches Python rearrange_w_o(W, H)
+std::vector<std::vector<double>> rearrange_wo_weights(
+    const std::vector<std::vector<double>>& W, int H);
+
 // Precompute masks needed for MHA operations (tok0 mask, init K cache)
 void prepare_mha_masks(Inference& inf);
 

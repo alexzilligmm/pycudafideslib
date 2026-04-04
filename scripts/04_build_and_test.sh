@@ -82,53 +82,11 @@ ls -lh "$BUILD_DIR/bin/"test_* 2>/dev/null
 # ── Run tests ────────────────────────────────────────────────────────────
 export OMP_NUM_THREADS=1
 
-# echo ""
-# echo "=========================================="
-# echo "--- Running test_non_linear (AttentionSoftmax only) ---"
-# echo "=========================================="
-# "$BUILD_DIR/bin/test_non_linear" --gtest_filter="NonLinearTest.AttentionSoftmax" 2>&1 || true
-# echo "Exit code: $?"
-
-# echo ""
-# echo "=========================================="
-# echo "--- Running test_linear ---"
-# echo "=========================================="
-# "$BUILD_DIR/bin/test_linear" 2>&1 || true
-# echo "Exit code: $?"
-
-# echo ""
-# echo "=========================================="
-# echo "--- Running test_mha_qkv ---"
-# echo "=========================================="
-# "$BUILD_DIR/bin/test_mha_qkv" 2>&1 || true
-# echo "Exit code: $?"
-
-# echo ""
-# echo "=========================================="
-# echo "--- Running test_mha_kcache ---"
-# echo "=========================================="
-# "$BUILD_DIR/bin/test_mha_kcache" 2>&1 || true
-# echo "Exit code: $?"
-
-# echo ""
-# echo "=========================================="
-# echo "--- Running test_mha_softmax ---"
-# echo "=========================================="
-# "$BUILD_DIR/bin/test_mha_softmax" 2>&1 || true
-# echo "Exit code: $?"
-
-# echo ""
-# echo "=========================================="
-# echo "--- Running test_mha_vcache ---"
-# echo "=========================================="
-# "$BUILD_DIR/bin/test_mha_vcache" 2>&1 || true
-# echo "Exit code: $?"
-
 echo ""
 echo "=========================================="
-echo "--- Running test_mha_e2e ---"
+echo "--- Running test_mha_o_proj ---"
 echo "=========================================="
-"$BUILD_DIR/bin/test_mha_e2e" 2>&1 || true
+"$BUILD_DIR/bin/test_mha_o_proj" 2>&1 || true
 echo "Exit code: $?"
 
 echo ""

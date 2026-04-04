@@ -28,6 +28,18 @@ Ctx out_proj     (Inference& inf, const Ctx& x);
 std::pair<Ctx, Ctx> up_gate  (Inference& inf, const Ctx& x);
 Ctx                 down_proj(Inference& inf, const Ctx& x);
 
+// Rearrange up/gate weight columns for CacheMir interleaved output layout.
+// For d_in → d_out (d_out = alpha * d_in), permutes columns via interleave_idx.
+// new_W[:, c] = W[:, interleave_idx(c, d_in, d_out)]
+std::vector<std::vector<double>> rearrange_up_weights(
+    const std::vector<std::vector<double>>& W, int d_in);
+
+// Rearrange down-projection rows for CacheMir interleaved input layout.
+// For d_in → d_out (d_in = alpha * d_out), permutes rows via interleave_idx.
+// new_W[r, :] = W[interleave_idx(r, d_out, d_in), :]
+std::vector<std::vector<double>> rearrange_down_weights(
+    const std::vector<std::vector<double>>& W, int d_out);
+
 void rotate_add_inplace(Inference& inf, Ctx& x, int step);
 
 struct GPT2LayerConfig {

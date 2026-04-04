@@ -68,7 +68,7 @@ struct SoftmaxConfig {
 
 //                                                exp  gs  seq  gs_sched  gs_min  btp_min  btp_lvl  gs_init  given_max
 inline const SoftmaxConfig SOFTMAX_ENCLLM_GPT2   { 7,  14,  4,  {},       6,      9,       9,       0.628,   205.0 }; 
-inline const SoftmaxConfig SOFTMAX_ATTN_GPT2     { 7,  4,  4,  {},       7,      16,       16,      0.628,   205.0 };
+inline const SoftmaxConfig SOFTMAX_ATTN_GPT2     { 7,  14,  4,  {},       7,      16,       16,      0.628,   205.0 };
 
 Ctx softmax(Inference& inf, const Ctx& x,
             const SoftmaxConfig& cfg = SOFTMAX_ENCLLM_GPT2,

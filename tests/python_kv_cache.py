@@ -67,6 +67,28 @@ def rearrange_q_k_v(W, H):
         new_W[:, r] = W[:, h * d_head + ld]
     return new_W
 
+def rearrange_w_o(W, H):
+    new_W = np.zeros_like(W)
+    d_in, d_out = W.shape
+    d_head = d_in // H
+    for r in range(d_in):
+        h = r % H
+        ld = r // H
+        new_W[r, :] = W[h * d_head + ld, :]
+    return new_W
+
+def rearrange_input_ct(ct, N, d, H):
+    new_ct = np.zeros_like(ct)
+    t = N // d
+    d_head = d // H
+    for r in range(d):
+        h = r % H
+        ld = r // H
+        old_block = h * d_head + ld
+        new_ct[r*t:(r+1)*t] = ct[old_block*t:(old_block+1)*t]
+    return new_ct
+    
+
 def _pos(local_dim, head, tok, t, H):
     """Ciphertext slot index for a (local_dim, head, token) triple."""
     return local_dim * t * H + head * t + tok
@@ -496,6 +518,7 @@ if __name__ == "__main__":
     old_X = old_X / np.linalg.norm(old_X, axis=-1, keepdims=True)# normalize to match layernorm constraints
     W_K = np.random.randn(d, d)
     W_V = np.random.randn(d, d)
+    W_O = np.random.randn(d, d)
 
     max_diff = calculate_per_head_logit_bounds(W_Q.reshape(d, H, d//H).transpose(1,0,2), W_K.reshape(d, H, d//H).transpose(1,0,2), norm_type="layernorm")
     max_diff = np.max(max_diff)
@@ -508,14 +531,18 @@ if __name__ == "__main__":
     V = V.reshape(V.shape[0], H, -1)
 
     gt_qkt, soft_out, gt_attn = multi_head_attention(Q, K, V, H=H, max_diff=max_diff)
+    out = gt_attn @ W_O
+    gt_res_out = out + curr_X
 
 
     rearranged_w_q = rearrange_q_k_v(W_Q, H) # d x d == d x (H * d_head)
     rearranged_w_k = rearrange_q_k_v(W_K, H) # d x d == d x (H * d_head)
     rearranged_w_v = rearrange_q_k_v(W_V, H) # d x d == d x (H * d_head)
+    rearranged_w_o = rearrange_w_o(W_O, H)
     encoded_W_q = encode_W(rearranged_w_q, N, d, alpha=1, is_up=True)
     encoded_W_k = encode_W(rearranged_w_k, N, d, alpha=1, is_up=True)
     encoded_W_v = encode_W(rearranged_w_v, N, d, alpha=1, is_up=True)
+    encoded_W_o = encode_W(rearranged_w_o, N, d, alpha=1, is_up=True)
 
     computed_params = compute_params(N, d, alpha=1, is_up=True)
 
@@ -538,5 +565,13 @@ if __name__ == "__main__":
     attn_val = kcache.qkt(encoded_Q)
     soft = softmax(attn_val, n, N, d, H, gt_max=max_diff)
     res = vcache.softmaxV(soft)
+    print("")
     print(res)
-    print(gt_attn)
+    encoded_O = cachemir_vmm(res, encoded_W_o, N, d, d, alpha=1, is_up=True, computed_params=computed_params)
+    print(out)
+    print(encoded_O)
+    
+    res_res = encoded_O + encoded_x
+    
+    print(res_res)
+    print(gt_res_out)

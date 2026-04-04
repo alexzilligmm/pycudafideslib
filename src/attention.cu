@@ -27,6 +27,21 @@ std::vector<std::vector<double>> rearrange_qkv_weights(
     return out;
 }
 
+std::vector<std::vector<double>> rearrange_wo_weights(
+        const std::vector<std::vector<double>>& W, int H) {
+    int d_in  = (int)W.size();
+    int d_out = (int)W[0].size();
+    int d_head = d_in / H;
+    std::vector<std::vector<double>> out(d_in, std::vector<double>(d_out));
+    for (int r = 0; r < d_in; ++r) {
+        int h  = r % H;
+        int ld = r / H;
+        int src_row = h * d_head + ld;
+        out[r] = W[src_row];
+    }
+    return out;
+}
+
 void prepare_mha_masks(Inference& inf) {
     int N = inf.slots;
     int d = inf.size.hidDim;
