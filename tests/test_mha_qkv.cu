@@ -4,16 +4,6 @@
 #include <random>
 #include <cmath>
 
-// Encode ground-truth output in CacheMIR square-matrix N-slot format:
-// For square d->d with alpha=1, is_up=true: y[i] sits at slot i*t
-static std::vector<double> encode_gt_square(const std::vector<double>& y, int N, int d) {
-    int t = N / d;
-    std::vector<double> ct(N, 0.0);
-    for (int i = 0; i < d; ++i)
-        ct[i * t] = y[i];
-    return ct;
-}
-
 // Reference matmul x @ W
 static std::vector<double> ref_matmul(const std::vector<double>& x,
                                        const std::vector<std::vector<double>>& W,
@@ -88,8 +78,6 @@ int main() {
 
     // Ground truth: x @ W_rearranged (result is already in interleaved order)
     auto y_gt = ref_matmul(x, W_rearranged, d, d);
-    // Encode ground truth into N-slot format
-    auto gt_encoded = encode_gt_square(y_gt, S, d);
 
     // FHE path: encode rearranged weights, project
     inf.w["q"] = encode_weight_matrix(inf, W_rearranged, d, d);
@@ -97,10 +85,12 @@ int main() {
     Ctx q_enc = linear(inf, x_enc, "q", d, d);
     auto q_raw = decrypt(inf.cc(), q_enc, inf.fhe->sk());
 
-    // Compare raw decrypted slots against encoded ground truth
+    // Compare only the d output slots (every t-th position) — other slots
+    // contain intermediate values from the linear algorithm, not zeros.
+    int t = S / d;
     max_err = 0.0;
-    for (int i = 0; i < S; ++i)
-        max_err = std::max(max_err, std::abs(q_raw[i] - gt_encoded[i]));
+    for (int i = 0; i < d; ++i)
+        max_err = std::max(max_err, std::abs(q_raw[i * t] - y_gt[i]));
 
     bool ok_proj = max_err < 1e-3;
     std::cout << (ok_proj ? "PASS" : "FAIL")

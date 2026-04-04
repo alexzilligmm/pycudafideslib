@@ -28,6 +28,12 @@ protected:
 
     static void SetUpTestSuite() {
         if (ctx) return;  // already built
+        // Include MHA rotation keys so attention tests can run in this fixture.
+        int S = 1 << (LOG_N - 1);
+        auto extra_rots = compute_gpt2_rot_indices(S, /*hidDim=*/1024,
+                                                    /*ffDim=*/4096,
+                                                    /*numHeads=*/16,
+                                                    /*seqLen=*/1);
         // OpenFHE bootstrap needs ≥59-bit moduli (shares Q chain, no separate P primes)
         ctx = make_ckks_context(
             /*logN=*/              LOG_N,
@@ -41,7 +47,8 @@ protected:
             /*batch_size=*/        0,
             /*h_weight=*/          192,
             /*num_large_digits=*/  3,
-            /*btp_depth_overhead=*/ OVERHEAD
+            /*btp_depth_overhead=*/ OVERHEAD,
+            /*extra_rot_steps=*/   extra_rots
         );
         inf = make_inf(ctx, DEPTH, OVERHEAD);
         // GPT-2 small: padded hD=1024 (must divide S=32768), real=768

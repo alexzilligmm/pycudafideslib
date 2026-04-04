@@ -20,12 +20,16 @@ void cache_k_push(Inference& inf, const Ctx& key_ct);
 Ctx qkt(Inference& inf, const Ctx& query_ct);
 
 // Intra-head sum reduction + inter-block aggregation
-Ctx head_reduce_sum(Inference& inf, const Ctx& ct);
+// Optional DepthGuard covers the log2(t) mask-multiply steps (phase 1).
+Ctx head_reduce_sum(Inference& inf, const Ctx& ct,
+                    const DepthGuard& dg = {});
 
-// Attention-specific softmax with oracle max and head-interleaved layout
+// Attention-specific softmax with oracle max and head-interleaved layout.
+// Uses SOFTMAX_ATTN_GPT2 by default (higher btp_min_remaining to account for
+// the extra depth consumed by head_reduce_sum's mask multiplies).
 Ctx attention_softmax(Inference& inf, const Ctx& scores,
                       int num_keys, double given_max,
-                      const SoftmaxConfig& cfg = SOFTMAX_ENCLLM_GPT2);
+                      const SoftmaxConfig& cfg = SOFTMAX_ATTN_GPT2);
 
 // Initialize V cache metaciphertexts (d_head zero ciphertexts)
 void prepare_vcache(Inference& inf);

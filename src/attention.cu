@@ -32,13 +32,11 @@ void prepare_mha_masks(Inference& inf) {
     int d = inf.size.hidDim;
     int t = N / d;
 
-    // tok0_mask: 1 at every position where i % t == 0
     std::vector<double> tok0(N, 0.0);
     for (int i = 0; i < N; ++i)
         tok0[i] = (i % t == 0) ? 1.0 : 0.0;
     inf.mask["tok0"] = inf.cc()->MakeCKKSPackedPlaintext(tok0);
 
-    // Initialize empty K cache
     inf.cache["k"] = {};
     inf.k_count = 0;
 }
@@ -52,10 +50,8 @@ void cache_k_push(Inference& inf, const Ctx& key_ct) {
     Ctx masked = cc->EvalMult(key_ct, inf.mask["tok0"]);
 
     if (inf.k_count % t == 0) {
-        // New group
         inf.cache["k"].push_back(std::move(masked));
     } else {
-        // Rotate into correct token slot and add to current group
         Ctx rotated = cc->EvalRotate(masked, mha_rot(inf, -(inf.k_count % t)));
         cc->EvalAddInPlace(inf.cache["k"].back(), rotated);
     }
@@ -70,16 +66,13 @@ Ctx qkt(Inference& inf, const Ctx& query_ct) {
     int t  = N / d;
     int tH = t * H;
 
-    // Mask query to tok=0 positions
     Ctx q = cc->EvalMult(query_ct, inf.mask["tok0"]);
 
-    // Fill: replicate across token slots within each head block
     for (int step = 1; step < t; step *= 2) {
         Ctx tmp = cc->EvalRotate(q, mha_rot(inf, -step));
         cc->EvalAddInPlace(q, tmp);
     }
 
-    // For each cache group: elementwise mult + sum_by_rot + group mask
     int keys_per_ct = t;
     int num_groups  = (int)inf.cache["k"].size();
     Ctx attn_ct;
@@ -88,16 +81,13 @@ Ctx qkt(Inference& inf, const Ctx& query_ct) {
         int first_key = g * keys_per_ct;
         int num_tok   = std::min(keys_per_ct, inf.k_count - first_key);
 
-        // Elementwise product
         Ctx result = cc->EvalMult(q, inf.cache["k"][g]);
 
-        // sum_by_rot: reduce across dimension blocks
         for (int s = tH; s < N; s *= 2) {
             Ctx tmp = cc->EvalRotate(result, mha_rot(inf, s));
             cc->EvalAddInPlace(result, tmp);
         }
 
-        // Group mask: keep only slots belonging to group g with valid tokens
         std::vector<double> gmask(N, 0.0);
         for (int i = 0; i < N; ++i) {
             if (i / tH == g && i % t < num_tok)
@@ -112,14 +102,14 @@ Ctx qkt(Inference& inf, const Ctx& query_ct) {
             cc->EvalAddInPlace(attn_ct, result);
     }
 
-    // Scale by 1/sqrt(d_head)
     double scale = 1.0 / std::sqrt((double)(d / H));
     cc->EvalMultInPlace(attn_ct, scale);
 
     return attn_ct;
 }
 
-Ctx head_reduce_sum(Inference& inf, const Ctx& ct) {
+Ctx head_reduce_sum(Inference& inf, const Ctx& ct,
+                    const DepthGuard& dg) {
     const CC& cc = inf.cc();
     int N  = inf.slots;
     int d  = inf.size.hidDim;
@@ -129,10 +119,10 @@ Ctx head_reduce_sum(Inference& inf, const Ctx& ct) {
 
     Ctx out = ct->Clone();
 
-    // Phase 1: intra-head reduction within t-blocks
-    // TODO: precompute these masks in prepare_mha_masks and encode at a fixed level
-    //       to avoid consuming ciphertext levels on plaintext-ct multiply
-    for (int step = 1; step < t; step *= 2) {
+    int step_idx = 0;
+    for (int step = 1; step < t; step *= 2, ++step_idx) {
+        if (dg) { out = dg(out, step_idx); }
+
         std::vector<double> mask_nw(N), mask_w(N);
         for (int i = 0; i < N; ++i) {
             mask_nw[i] = ((i % t) + step < t) ? 1.0 : 0.0;
@@ -148,7 +138,6 @@ Ctx head_reduce_sum(Inference& inf, const Ctx& ct) {
         cc->EvalAddInPlace(out, shifted);
     }
 
-    // Phase 2: inter-block aggregation
     for (int s = tH; s < N; s *= 2) {
         Ctx tmp = cc->EvalRotate(out, mha_rot(inf, s));
         cc->EvalAddInPlace(out, tmp);
@@ -166,29 +155,58 @@ Ctx attention_softmax(Inference& inf, const Ctx& scores,
     int H = inf.size.numHeads;
     int t = N / d;
 
-    // neg_inf_mask: -given_max everywhere except valid token positions
-    std::vector<double> ninf(N, -given_max);
+    auto maybe_btp = [&](Ctx& ct, const char* tag) {
+        if (cfg.btp_min_remaining == 0) return;
+        uint32_t consumed  = level_of(ct);
+        uint32_t remaining = ((uint32_t)inf.total_depth > consumed)
+                             ? ((uint32_t)inf.total_depth - consumed) : 0u;
+        if (remaining < cfg.btp_min_remaining) {
+            ct = bootstrap_to(inf, ct, cfg.btp_min_remaining);
+            std::cout << "  [attn_softmax] " << tag << " bootstrap, consumed="
+                      << level_of(ct) << "\n";
+        }
+    };
+
+    double mask_max = std::max(given_max, std::pow(2.0, cfg.exp_r - 1));
+
+    std::vector<double> mask(N, -mask_max - given_max);
     for (int h = 0; h < H; ++h)
         for (int tok = 0; tok < num_keys; ++tok)
-            ninf[tok / t * t * H + h * t + tok % t] = 0.0;
-    Ptx ninf_pt = cc->MakeCKKSPackedPlaintext(ninf);
+            mask[tok / t * t * H + h * t + tok % t] = -given_max;
+    Ptx mask_pt = cc->MakeCKKSPackedPlaintext(mask);
+    Ctx ct = cc->EvalAdd(scores, mask_pt);
 
-    // scores + neg_inf_mask - given_max
-    Ctx ct = cc->EvalAdd(scores, ninf_pt);
-    cc->EvalSubInPlace(ct, given_max);
-
-    // TODO: exp_r and gs_inv_iters should come from a config struct (like SoftmaxConfig)
+    maybe_btp(ct, "pre-exp");
     Ctx e = exp_approx(cc, ct, cfg.exp_r);
 
-    // head_reduce_sum to broadcast denominator into every slot
-    Ctx s = head_reduce_sum(inf, e);
+    DepthGuard hrs_dg;
+    if (!cfg.gs_btp_schedule.empty() || cfg.gs_btp_min_remaining > 0) {
+        hrs_dg.refresh = [&](const Ctx& c) {
+            return bootstrap_to(inf, c, (uint32_t)cfg.btp_target_level);
+        };
+        hrs_dg.total_depth   = (uint32_t)inf.total_depth;
+        hrs_dg.min_remaining = cfg.gs_btp_min_remaining;
+    }
+    maybe_btp(e, "pre-head-reduce");
+    Ctx s = head_reduce_sum(inf, e, hrs_dg);
 
-    // TODO: initial estimate is a rough guess — tune based on actual value range
     double alpha = 1.0 / (double)num_keys;
     Ctx inv_init = encrypt_const(cc, alpha, (size_t)N, inf.fhe->pk());
-    DepthGuard dg;
-    Ctx inv_s = goldschmidt_inv(cc, s, inv_init, cfg.gs_inv_iters, dg);
 
+    maybe_btp(s, "pre-inv");
+
+    DepthGuard gs_dg;
+    if (!cfg.gs_btp_schedule.empty() || cfg.gs_btp_min_remaining > 0) {
+        gs_dg.refresh = [&](const Ctx& c) {
+            return bootstrap_to(inf, c, (uint32_t)cfg.btp_target_level);
+        };
+        gs_dg.schedule      = cfg.gs_btp_schedule;
+        gs_dg.total_depth   = (uint32_t)inf.total_depth;
+        gs_dg.min_remaining = cfg.gs_btp_min_remaining;
+    }
+    Ctx inv_s = goldschmidt_inv(cc, s, inv_init, cfg.gs_inv_iters, gs_dg);
+
+    maybe_btp(e, "pre-final-mult");
     return cc->EvalMult(e, inv_s);
 }
 
@@ -196,7 +214,6 @@ void prepare_vcache(Inference& inf) {
     int d_head = inf.size.hidDim / inf.size.numHeads;
     int N = inf.slots;
 
-    // Initialize d_head zero ciphertexts as metaciphertext lanes
     std::vector<double> zeros(N, 0.0);
     Ctx zero_ct = encrypt(inf.cc(),
                           inf.cc()->MakeCKKSPackedPlaintext(zeros),
@@ -223,7 +240,7 @@ void cache_v_push(Inference& inf, const Ctx& value_ct) {
               : cc->EvalRotate(value_ct, mha_rot(inf, -right_rot));
 
     for (int i = 0; i < d_head; ++i) {
-        // TODO: precompute these masks to avoid level consumption
+        // TODO: are these masks at the right level 
         std::vector<double> mask(N, 0.0);
         for (int h = 0; h < H; ++h)
             mask[i * tH + h * t + right_rot] = 1.0;
@@ -254,13 +271,11 @@ Ctx softmax_v(Inference& inf, const Ctx& softmax_scores) {
         cc->EvalAddInPlace(res, tmp);
     }
 
-    // Intra-token reduction
     for (int step = 1; step < t; step *= 2) {
         Ctx tmp = cc->EvalRotate(res, mha_rot(inf, step));
         cc->EvalAddInPlace(res, tmp);
     }
 
-    // Mask to tok=0 positions
     res = cc->EvalMult(res, inf.mask["tok0"]);
     return res;
 }

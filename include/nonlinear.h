@@ -66,11 +66,9 @@ struct SoftmaxConfig {
     double           given_max_val       = 0.0; // 0.0 = not set (use computed max)
 };
 
-//                                              r   gs  seq  gs_sched  gs_min  btp_min  btp_lvl  gs_init  given_max
-// btp_min = exp_r + 2: autonomous bootstrap guard — fires before exp_approx
-// if remaining is insufficient (exp needs exp_r+1 levels + 1 for final mult).
-// btp_lvl ≤ 13 to match paper's L=13 (max level after bootstrap).
-inline const SoftmaxConfig SOFTMAX_ENCLLM_GPT2   { 7,  14,  4,  {},       6,      9,       9,       0.628,   205.0 }; // paper: softmax gets 0→9
+//                                                 gs  seq  gs_sched  gs_min  btp_min  btp_lvl  gs_init  given_max
+inline const SoftmaxConfig SOFTMAX_ENCLLM_GPT2   { 7,  14,  4,  {},       6,      9,       9,       0.628,   205.0 }; 
+inline const SoftmaxConfig SOFTMAX_ATTN_GPT2     { 7,  14,  4,  {},       6,      16,       9,      0.628,   205.0 };
 
 Ctx softmax(Inference& inf, const Ctx& x,
             const SoftmaxConfig& cfg = SOFTMAX_ENCLLM_GPT2,

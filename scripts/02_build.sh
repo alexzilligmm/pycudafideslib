@@ -1,4 +1,4 @@
-et -e
+set -e
 echo "=== Building cuda_cachemir ==="
 echo "Host: $(hostname)  |  Date: $(date)"
 
