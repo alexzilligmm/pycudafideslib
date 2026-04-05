@@ -143,6 +143,9 @@ Ctx gelu(Inference& inf, const Ctx& x_in, const GeluConfig& cfg) {
     Ctx x_copy = x_in;
     Ctx term2 = cc->EvalMult(ind_lin, x_copy);
 
+    cc->EvalAddInPlace(term0, term1);    // ← was missing
+    cc->EvalAddInPlace(term0, term2);    // ← was missing
+
     int eD = inf.size.expDim;
     int tp = S / eD;
     if (tp > 1) {

@@ -90,5 +90,12 @@ echo "=========================================="
 echo "Exit code: $?"
 
 echo ""
+echo "=========================================="
+echo "--- Running GeLU test ---"
+echo "=========================================="
+"$BUILD_DIR/bin/test_non_linear" 2>&1 || true
+echo "Exit code: $?"
+
+echo ""
 echo "=== All tests complete ==="
 echo "Date: $(date)"
