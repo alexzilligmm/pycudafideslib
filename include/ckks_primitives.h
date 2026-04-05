@@ -128,3 +128,8 @@ Ctx compute_variance(Inference& inf, const Ctx& x_in);
 
 /// Computes variance given a precomputed mean (as returned by compute_average).
 Ctx compute_variance(Inference& inf, const Ctx& x_in, Ctx mean);
+
+
+Ctx compute_variance_interleaved(Inference& inf, const Ctx& x_in, Ctx mean);
+
+Ctx compute_variance_interleaved(Inference& inf, const Ctx& x_in);

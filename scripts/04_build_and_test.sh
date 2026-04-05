@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name build_test_mha
 #SBATCH -A IscrC_eff-SAM2
-#SBATCH --time 01:00:00
-#SBATCH --qos normal
+#SBATCH --time 00:30:00
+#SBATCH --qos=boost_qos_dbg
 #SBATCH -p boost_usr_prod
 #SBATCH --mem=128G
 #SBATCH -N 1

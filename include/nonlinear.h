@@ -12,7 +12,7 @@ struct GeluConfig {
     uint32_t sign_btp_min_remaining = 5;  // bootstrap inside sign when remaining < 5
 };
 
-//                                                 rescale  btp_ind  btp_lvl
+//                                          rescale  btp_ind  btp_lvl
 inline const GeluConfig GELU_ENCLLM_GPT2  { 1.0 / 67.0,  true,    0 }; // 1/(absmax+4), absmax~63 from profiling
 
 enum class NRInitMethod { LINEAR, REMEZ, TAYLOR };
@@ -38,7 +38,7 @@ struct NormConfig {
     uint32_t            nr_btp_min_remaining = 6;
 };
 
-//                                              method               coeffs          NR  GS                                              z0    rescale   d_min   d_max
+//                                              method               coeffs          NR  GS                              
 inline const NormConfig NORM_ENCLLM_GPT2   { NRInitMethod::TAYLOR, {},               16,  14, {}, {}, 1.0, 1.0, 5, /*taylor_z0=*/0.5, /*taylor_rescale=*/1.0, /*gs_d_min=*/1e-6, /*gs_d_max=*/1.0 };
 
 

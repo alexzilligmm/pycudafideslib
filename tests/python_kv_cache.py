@@ -448,7 +448,18 @@ def main():
         _print_group_interleaving(ct, N, d, H, num_tok, f"group {g} (keys {start}..{start + num_tok - 1})")
 
     print(f"\n{'ALL PASSED' if ok else 'SOME FAILURES'}")
+    
+def compute_avg_interleaved(ct, N, d):
+    t  = N // d
+    out = ct.copy()
 
+    step = 1
+    while step < t:
+        out += rot(out, step)
+        step *= 2
+    return out / d
+
+# TODO: do this when export weights as it is anightmare in c++
 def calculate_per_head_logit_bounds(W_q, W_k, norm_type="layernorm"):
     """
     Calculates the theoretical maximum and minimum values (logits) that can enter 

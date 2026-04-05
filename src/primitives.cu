@@ -197,7 +197,7 @@ Ctx compute_average(Inference& inf, const Ctx& x_in) {
 
     const CC& cc = inf.cc();
     const int S  = inf.slots;
-    const int hD = inf.size.hidDim;
+    const int hD = inf.size.hidDim; // shouldn't we be dividing be real dim?
 
     Ctx mean = x_in->Clone();
     for (int i = S / hD; i < S; i *= 2) {
@@ -264,4 +264,57 @@ Ctx compute_variance(Inference& inf, const Ctx& x_in, Ctx mean) {
 /// @brief Computes the encrypted variance, deriving the mean internally.
 Ctx compute_variance(Inference& inf, const Ctx& x_in) {
     return compute_variance(inf, x_in, compute_average(inf, x_in));
+}
+
+static Ctx spread_tok0(const CC& cc, const Ctx& ct, int S, int hD) {
+    int t = S / hD;
+    Ctx out = ct;
+    for (int step = 1; step < t; step *= 2) {
+        Ctx tmp = cc->EvalRotate(out, -step);
+        cc->EvalAddInPlace(out, tmp);
+    }
+    return out;
+}
+
+/// @brief Variance across hidDim, with clean output replicated to all tok-slots.
+///
+///   Depth: EvalMult(x, rD·pad_mask)=1  +  Square=1  +  EvalMult(inv_d3·tok0_mask)=1
+///        = 3 levels total (saves 1 level vs separate scaling + padding mask)
+///
+///   The final inv_d3 scalar multiply is replaced with a plaintext multiply
+///   that is inv_d3 at tok=0 and 0 elsewhere (same depth), then spread_tok0
+///   replicates the correct variance to all tok positions (free).
+Ctx compute_variance_interleaved(Inference& inf, const Ctx& x_in, Ctx mean) {
+    const CC& cc  = inf.cc();
+    const int S   = inf.slots;
+    const int hD  = inf.size.hidDim;
+    const int rD  = inf.size.getRealHidDim();
+    const int t   = S / hD;
+
+    // rD at first rD*t slots, 0 beyond → stride=1, n=rD*t
+    Ptx scale_mask = inf.encode_stride_mask(rD * t, 1, (double)rD);
+    Ctx varc = cc->EvalMult(x_in, scale_mask);
+
+    drop_levels(cc, mean, 1);
+    cc->EvalSubInPlace(varc, mean);
+
+    cc->EvalSquareInPlace(varc);
+
+    for (int gap = t; gap < S; gap *= 2) {
+        Ctx tmp = cc->EvalRotate(varc, gap);
+        cc->EvalAddInPlace(varc, tmp);
+    }
+
+    // inv_d3 at every t-th slot → stride=t, n=hD
+    double inv_d3 = 1.0 / ((double)rD * rD * rD);
+    Ptx pm_inv = inf.encode_stride_mask(hD, t, inv_d3);
+    varc = cc->EvalMult(varc, pm_inv);
+
+    varc = spread_tok0(cc, varc, S, hD);
+
+    return varc;
+}
+ 
+Ctx compute_variance_interleaved(Inference& inf, const Ctx& x_in) {
+    return compute_variance_interleaved(inf, x_in, compute_average(inf, x_in));
 }

@@ -41,6 +41,13 @@ struct Inference {
     std::unordered_map<std::string, Ptx> mask;
     std::vector<Ptx>                     cache_mask;
 
+    Ptx encode_stride_mask(int d, int stride, double scale = 1.0) const {
+        std::vector<double> v(slots, 0.0);
+        for (int i = 0; i < d; ++i)
+            v[i * stride] = scale;
+        return cc()->MakeCKKSPackedPlaintext(v, 1);
+    }
+
     int k_count = 0;   // number of keys pushed into K cache
     int v_count = 0;   // number of values pushed into V cache
 

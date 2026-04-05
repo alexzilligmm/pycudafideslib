@@ -63,7 +63,7 @@ Ctx lt_function(Inference& inf, const Ctx& x_in, double value,
 
     Ctx s = sign(inf, y, dg);
 
-    // (1 - s) / 2
+    // (1 - s) / 2    
     Ctx res = cc->EvalNegate(s);
     cc->EvalAddInPlace(res, 1.0);
     cc->EvalMultInPlace(res, 0.5);
@@ -143,8 +143,12 @@ Ctx gelu(Inference& inf, const Ctx& x_in, const GeluConfig& cfg) {
     Ctx x_copy = x_in;
     Ctx term2 = cc->EvalMult(ind_lin, x_copy);
 
-    cc->EvalAddInPlace(term0, term1);
-    cc->EvalAddInPlace(term0, term2);
+    int eD = inf.size.expDim;
+    int tp = S / eD;
+    if (tp > 1) {
+        Ptx final_mask = inf.encode_stride_mask(eD, tp, 1.0);
+        term0 = cc->EvalMult(term0, final_mask);
+    }
 
     return term0;
 }
@@ -153,50 +157,44 @@ Ctx norm(Inference& inf, const Ctx& x_in,
          int target_level_after_btp, const NormConfig& cfg) {
     const CC& cc = inf.cc();
     const int S  = inf.slots;
-    const int hD = inf.size.hidDim;         
-    const int rD = inf.size.getRealHidDim();  
-
-    Ctx x = mask_slots(cc, x_in, S, hD);
-
-    Ctx mean = compute_average(inf, x);
-    Ctx varc = compute_variance(inf, x, mean);
-
+    const int hD = inf.size.hidDim;
+    const int rD = inf.size.getRealHidDim();
+ 
+    Ctx mean = compute_average(inf, x_in);
+    Ctx varc = compute_variance_interleaved(inf, x_in, mean);
+ 
     cc->EvalAddInPlace(varc, cfg.epsilon);
-
-    std::vector<double> coeffs_std(cfg.nr_init_coeffs.rbegin(), cfg.nr_init_coeffs.rend());
-
+ 
     Ctx inv_sqrt_init;
     switch (cfg.nr_init_method) {
-        case NRInitMethod::LINEAR:
+        case NRInitMethod::LINEAR: {
+            std::vector<double> coeffs_std(cfg.nr_init_coeffs.rbegin(),
+                                           cfg.nr_init_coeffs.rend());
             inv_sqrt_init = eval_polynomial(cc, varc, coeffs_std);
             break;
-
+        }
         case NRInitMethod::REMEZ: {
             double alpha = 4.0 / (cfg.gs_d_min + cfg.gs_d_max);
             double beta  = alpha * alpha / 4.0;
             auto div_init = cc->EvalMult(varc, -beta);
             cc->EvalAddInPlace(div_init, alpha);
-
             inv_sqrt_init = eval_rational_approx(cc, div_init,
                                   cfg.remez_p_coeffs, cfg.remez_q_coeffs,
-                                  cfg.remez_q_min, cfg.remez_q_max, inf.fhe->pk(), inf.slots,
-                                  cfg.remez_div_iters);
+                                  cfg.remez_q_min, cfg.remez_q_max,
+                                  inf.fhe->pk(), inf.slots, cfg.remez_div_iters);
             break;
         }
-
         case NRInitMethod::TAYLOR: {
             double s = cfg.taylor_rescale;
             Ctx var_scaled = (s != 1.0) ? cc->EvalMult(varc, s) : varc->Clone();
-
             std::vector<double> taylor_c = taylor_inv_sqrt_coeffs(cfg.taylor_z0);
             inv_sqrt_init = eval_taylor_inv_sqrt(cc, var_scaled, taylor_c, cfg.taylor_z0);
-
             if (s != 1.0)
                 cc->EvalMultInPlace(inv_sqrt_init, std::sqrt(s));
             break;
         }
     }
-
+ 
     DepthGuard dg;
     if (!cfg.nr_btp_schedule.empty() || cfg.nr_btp_min_remaining > 0) {
         dg.refresh = [&](const Ctx& ct) {
@@ -206,17 +204,15 @@ Ctx norm(Inference& inf, const Ctx& x_in,
         dg.total_depth   = (uint32_t)inf.total_depth;
         dg.min_remaining = cfg.nr_btp_min_remaining;
     }
-
-    Ctx inv_sqrt_varc;
-    inv_sqrt_varc = inv_sqrt_newton(cc, varc, inv_sqrt_init, cfg.nr_iters, dg);
-
+ 
+    Ctx inv_sqrt_varc = inv_sqrt_newton(cc, varc, inv_sqrt_init, cfg.nr_iters, dg);
+ 
     Ctx x_centered = x_in->Clone();
-    // Divide by original value to ignore padded dims.
     Ctx true_mean  = cc->EvalMult(mean, 1.0 / (double)rD);
     cc->EvalSubInPlace(x_centered, true_mean);
-
+ 
     Ctx result = cc->EvalMult(x_centered, inv_sqrt_varc);
-
+ 
     return result;
 }
 

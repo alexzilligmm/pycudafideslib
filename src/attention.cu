@@ -46,12 +46,7 @@ void prepare_mha_masks(Inference& inf) {
     int N = inf.slots;
     int d = inf.size.hidDim;
     int t = N / d;
-
-    std::vector<double> tok0(N, 0.0);
-    for (int i = 0; i < N; ++i)
-        tok0[i] = (i % t == 0) ? 1.0 : 0.0;
-    inf.mask["tok0"] = inf.cc()->MakeCKKSPackedPlaintext(tok0);
-
+    inf.mask["tok0"] = inf.encode_stride_mask(d, t, 1.0);  
     inf.cache["k"] = {};
     inf.k_count = 0;
 }
